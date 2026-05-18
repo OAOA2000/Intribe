@@ -4,3 +4,5 @@ test_code/
 .env
 .env.*
 !.env.example
+
+.vscode/
