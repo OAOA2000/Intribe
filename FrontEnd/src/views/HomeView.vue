@@ -41,7 +41,12 @@
       <p v-if="error" class="mb-4 text-sm text-red-600">{{ error }}</p>
       <p v-if="actionMessage" class="mb-4 text-sm text-primary">{{ actionMessage }}</p>
       <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-        <div v-for="tribe in filteredTribes" :key="tribe.id" class="card p-4">
+        <div
+          v-for="tribe in filteredTribes"
+          :key="tribe.id"
+          class="card cursor-pointer p-4"
+          @click="router.push(`/tribes/${tribe.id}`)"
+        >
           <div class="w-16 h-16 rounded-full bg-primary/20 flex items-center justify-center mb-3">
             <component :is="getTribeIcon(tribe.tag)" class="w-8 h-8 text-primary" />
           </div>

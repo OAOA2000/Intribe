@@ -4,6 +4,8 @@ alter table public.tribe_members enable row level security;
 alter table public.events enable row level security;
 alter table public.event_registrations enable row level security;
 alter table public.messages enable row level security;
+alter table public.tribe_posts enable row level security;
+alter table public.tribe_comments enable row level security;
 
 create or replace function public.is_tribe_manager(target_tribe_id uuid, target_user_id uuid default auth.uid())
 returns boolean
@@ -158,3 +160,72 @@ on public.messages for update
 to authenticated
 using (user_id = auth.uid())
 with check (user_id = auth.uid());
+
+drop policy if exists "tribe_posts_select_authenticated" on public.tribe_posts;
+create policy "tribe_posts_select_authenticated"
+on public.tribe_posts for select
+to authenticated
+using (deleted_at is null);
+
+drop policy if exists "tribe_posts_insert_authenticated_author" on public.tribe_posts;
+create policy "tribe_posts_insert_authenticated_author"
+on public.tribe_posts for insert
+to authenticated
+with check (author_id = auth.uid());
+
+drop policy if exists "tribe_posts_update_author_or_manager" on public.tribe_posts;
+create policy "tribe_posts_update_author_or_manager"
+on public.tribe_posts for update
+to authenticated
+using (author_id = auth.uid() or public.is_tribe_manager(tribe_id))
+with check (author_id = auth.uid() or public.is_tribe_manager(tribe_id));
+
+drop policy if exists "tribe_comments_select_authenticated" on public.tribe_comments;
+create policy "tribe_comments_select_authenticated"
+on public.tribe_comments for select
+to authenticated
+using (
+  exists (
+    select 1
+    from public.tribe_posts p
+    where p.id = post_id
+      and p.deleted_at is null
+  )
+);
+
+drop policy if exists "tribe_comments_insert_authenticated_author" on public.tribe_comments;
+create policy "tribe_comments_insert_authenticated_author"
+on public.tribe_comments for insert
+to authenticated
+with check (
+  author_id = auth.uid()
+  and exists (
+    select 1
+    from public.tribe_posts p
+    where p.id = post_id
+      and p.deleted_at is null
+  )
+);
+
+drop policy if exists "tribe_comments_update_author_or_manager" on public.tribe_comments;
+create policy "tribe_comments_update_author_or_manager"
+on public.tribe_comments for update
+to authenticated
+using (
+  author_id = auth.uid()
+  or exists (
+    select 1
+    from public.tribe_posts p
+    where p.id = post_id
+      and public.is_tribe_manager(p.tribe_id)
+  )
+)
+with check (
+  author_id = auth.uid()
+  or exists (
+    select 1
+    from public.tribe_posts p
+    where p.id = post_id
+      and public.is_tribe_manager(p.tribe_id)
+  )
+);

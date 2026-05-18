@@ -9,6 +9,7 @@ from ..services.tribes_service import (
     leave_tribe,
     list_tribes,
 )
+from ..services.posts_service import create_tribe_post, list_tribe_posts
 from ..utils.responses import success_response
 from ..utils.validators import get_json_body
 
@@ -33,10 +34,22 @@ def detail(tribe_id):
     return success_response(get_tribe_detail(tribe_id))
 
 
+@tribes_bp.get("/<tribe_id>/posts")
+@require_auth
+def posts(tribe_id):
+    return success_response(list_tribe_posts(tribe_id))
+
+
 @tribes_bp.post("")
 @require_auth
 def create():
     return success_response(create_tribe(get_json_body()), 201)
+
+
+@tribes_bp.post("/<tribe_id>/posts")
+@require_auth
+def create_post(tribe_id):
+    return success_response(create_tribe_post(tribe_id, get_json_body()), 201)
 
 
 @tribes_bp.post("/<tribe_id>/join")

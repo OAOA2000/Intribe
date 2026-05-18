@@ -74,6 +74,28 @@ create table if not exists public.messages (
   created_at timestamptz not null default now()
 );
 
+create table if not exists public.tribe_posts (
+  id uuid primary key default gen_random_uuid(),
+  tribe_id uuid not null references public.tribes(id) on delete cascade,
+  author_id uuid not null references auth.users(id) on delete cascade,
+  title text not null,
+  content text not null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  deleted_at timestamptz
+);
+
+create table if not exists public.tribe_comments (
+  id uuid primary key default gen_random_uuid(),
+  post_id uuid not null references public.tribe_posts(id) on delete cascade,
+  author_id uuid not null references auth.users(id) on delete cascade,
+  parent_id uuid references public.tribe_comments(id) on delete set null,
+  content text not null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  deleted_at timestamptz
+);
+
 drop trigger if exists set_profiles_updated_at on public.profiles;
 create trigger set_profiles_updated_at
 before update on public.profiles
@@ -89,8 +111,23 @@ create trigger set_events_updated_at
 before update on public.events
 for each row execute function public.set_updated_at();
 
+drop trigger if exists set_tribe_posts_updated_at on public.tribe_posts;
+create trigger set_tribe_posts_updated_at
+before update on public.tribe_posts
+for each row execute function public.set_updated_at();
+
+drop trigger if exists set_tribe_comments_updated_at on public.tribe_comments;
+create trigger set_tribe_comments_updated_at
+before update on public.tribe_comments
+for each row execute function public.set_updated_at();
+
 create index if not exists idx_tribe_members_user_id on public.tribe_members(user_id);
 create index if not exists idx_tribe_members_tribe_id on public.tribe_members(tribe_id);
 create index if not exists idx_events_tribe_id on public.events(tribe_id);
 create index if not exists idx_event_registrations_user_id on public.event_registrations(user_id);
 create index if not exists idx_messages_user_id on public.messages(user_id);
+create index if not exists idx_tribe_posts_tribe_id on public.tribe_posts(tribe_id);
+create index if not exists idx_tribe_posts_author_id on public.tribe_posts(author_id);
+create index if not exists idx_tribe_comments_post_id on public.tribe_comments(post_id);
+create index if not exists idx_tribe_comments_parent_id on public.tribe_comments(parent_id);
+create index if not exists idx_tribe_comments_author_id on public.tribe_comments(author_id);

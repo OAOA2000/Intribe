@@ -16,7 +16,7 @@
           <p class="text-sm text-gray-500">{{ tribe.members }} 成员 · {{ tribe.activities }} 近期活动</p>
         </div>
         <div class="flex gap-2">
-          <button class="btn-primary" @click="actionMessage = `已进入「${tribe.name}」`">进入</button>
+          <button class="btn-primary" @click="router.push(`/tribes/${tribe.id}`)">进入</button>
           <button
             v-if="tribe.membershipRole === 'member'"
             class="px-4 py-2 rounded-lg bg-gray-100 text-gray-700 hover:bg-gray-200 active:scale-95 transition-all duration-200 disabled:opacity-60"
@@ -56,8 +56,11 @@
 
 <script setup>
 import { computed, onMounted, ref } from 'vue';
+import { useRouter } from 'vue-router';
 import { Code, Activity, Guitar, Palette, Users } from 'lucide-vue-next';
 import { api } from '../services/api';
+
+const router = useRouter();
 
 // 获取部落图标
 const getTribeIcon = (tag) => {

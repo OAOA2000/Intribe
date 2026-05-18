@@ -22,6 +22,18 @@ const routes = [
     meta: { requiresAuth: true }
   },
   {
+    path: '/tribes/:id',
+    name: 'tribe-detail',
+    component: () => import('../views/TribeDetailView.vue'),
+    meta: { requiresAuth: true }
+  },
+  {
+    path: '/posts/:id',
+    name: 'post-detail',
+    component: () => import('../views/PostDetailView.vue'),
+    meta: { requiresAuth: true }
+  },
+  {
     path: '/messages',
     name: 'messages',
     component: () => import('../views/MessagesView.vue'),
