@@ -67,13 +67,31 @@
                 {{ activity.location }}
               </div>
             </div>
-            <button
-              class="btn-secondary self-start mt-3 disabled:opacity-60"
-              :disabled="registeringId === activity.id"
-              @click="registerActivity(activity)"
-            >
-              {{ registeringId === activity.id ? '报名中...' : '立即报名' }}
-            </button>
+            <div class="flex flex-wrap gap-2 mt-3">
+              <button
+                v-if="!isRegistered(activity.id)"
+                class="btn-secondary disabled:opacity-60"
+                :disabled="registeringId === activity.id"
+                @click="registerActivity(activity)"
+              >
+                {{ registeringId === activity.id ? '报名中...' : '立即报名' }}
+              </button>
+              <button
+                v-else
+                class="px-4 py-2 rounded-lg bg-gray-200 text-gray-900 cursor-not-allowed"
+                disabled
+              >
+                已参加
+              </button>
+              <button
+                v-if="isRegistered(activity.id)"
+                class="px-4 py-2 rounded-lg bg-red-600 text-white hover:bg-red-700 active:scale-95 transition-all duration-200 disabled:opacity-60"
+                :disabled="cancellingId === activity.id"
+                @click="cancelRegistration(activity)"
+              >
+                {{ cancellingId === activity.id ? '退出中...' : '退出报名' }}
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -106,8 +124,10 @@ const loading = ref(false);
 const error = ref('');
 const actionMessage = ref('');
 const registeringId = ref(null);
+const cancellingId = ref(null);
 const tribes = ref([]);
 const activities = ref([]);
+const registrations = ref([]);
 const searchKeyword = computed(() => (typeof route.query.search === 'string' ? route.query.search.trim() : ''));
 
 // 切换标签
@@ -204,17 +224,25 @@ const normalizeActivity = (event) => ({
   location: event.location || '地点待定'
 });
 
+const isRegistered = (eventId) => registrations.value.some((registration) => registration.event_id === eventId);
+
+const loadRegistrations = async () => {
+  registrations.value = await api.get('/events/my-registrations');
+};
+
 const loadPageData = async () => {
   loading.value = true;
   error.value = '';
 
   try {
-    const [tribeRows, eventRows] = await Promise.all([
+    const [tribeRows, eventRows, registrationRows] = await Promise.all([
       api.get('/tribes', { search: searchKeyword.value }),
-      api.get('/events', { search: searchKeyword.value })
+      api.get('/events', { search: searchKeyword.value }),
+      api.get('/events/my-registrations')
     ]);
     tribes.value = tribeRows.map(normalizeTribe);
     activities.value = eventRows.map(normalizeActivity);
+    registrations.value = registrationRows;
   } catch (err) {
     error.value = err.message || '加载数据失败，请确认后端已启动并完成 Supabase 初始化';
   } finally {
@@ -233,11 +261,28 @@ const registerActivity = async (activity) => {
 
   try {
     await api.post(`/events/${activity.id}/register`);
+    await loadRegistrations();
     actionMessage.value = `已报名「${activity.title}」`;
   } catch (err) {
     error.value = err.message || '报名失败';
   } finally {
     registeringId.value = null;
+  }
+};
+
+const cancelRegistration = async (activity) => {
+  cancellingId.value = activity.id;
+  actionMessage.value = '';
+  error.value = '';
+
+  try {
+    await api.delete(`/events/${activity.id}/register`);
+    await loadRegistrations();
+    actionMessage.value = `已退出「${activity.title}」报名`;
+  } catch (err) {
+    error.value = err.message || '退出报名失败';
+  } finally {
+    cancellingId.value = null;
   }
 };
 
