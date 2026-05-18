@@ -15,7 +15,17 @@
           <h4 class="font-semibold text-lg">{{ tribe.name }}</h4>
           <p class="text-sm text-gray-500">{{ tribe.members }} 成员 · {{ tribe.activities }} 近期活动</p>
         </div>
-        <button class="btn-primary" @click="actionMessage = `已进入「${tribe.name}」`">进入</button>
+        <div class="flex gap-2">
+          <button class="btn-primary" @click="actionMessage = `已进入「${tribe.name}」`">进入</button>
+          <button
+            v-if="tribe.membershipRole === 'member'"
+            class="px-4 py-2 rounded-lg bg-gray-100 text-gray-700 hover:bg-gray-200 active:scale-95 transition-all duration-200 disabled:opacity-60"
+            :disabled="leavingId === tribe.id"
+            @click="leaveTribe(tribe)"
+          >
+            {{ leavingId === tribe.id ? '退出中...' : '退出' }}
+          </button>
+        </div>
       </div>
     </div>
     <p v-if="!loading && myTribes.length === 0" class="text-sm text-gray-500">还没有加入部落，可以从推荐部落开始。</p>
@@ -69,6 +79,7 @@ const loading = ref(false);
 const error = ref('');
 const actionMessage = ref('');
 const joiningId = ref(null);
+const leavingId = ref(null);
 const allTribes = ref([]);
 const memberships = ref([]);
 
@@ -87,17 +98,19 @@ const categoryToTag = (category, name = '') => {
 const normalizeTribe = (tribe) => ({
   ...tribe,
   tag: categoryToTag(tribe.category, tribe.name),
-  members: Array.isArray(tribe.tribe_members) ? tribe.tribe_members.length : 0,
-  activities: Array.isArray(tribe.events) ? tribe.events.length : 0
+  members: tribe.member_count ?? (Array.isArray(tribe.tribe_members) ? tribe.tribe_members.length : 0),
+  activities: tribe.event_count ?? (Array.isArray(tribe.events) ? tribe.events.length : 0)
 });
 
 const memberTribeIds = computed(() => new Set(memberships.value.map((item) => item.tribes?.id || item.tribe_id)));
 
 const myTribes = computed(() =>
   memberships.value
-    .map((item) => item.tribes)
-    .filter(Boolean)
-    .map(normalizeTribe)
+    .filter((item) => item.tribes)
+    .map((item) => ({
+      ...normalizeTribe(item.tribes),
+      membershipRole: item.role
+    }))
 );
 
 const recommendedTribes = computed(() =>
@@ -137,6 +150,22 @@ const joinTribe = async (tribe) => {
     error.value = err.message || '加入部落失败';
   } finally {
     joiningId.value = null;
+  }
+};
+
+const leaveTribe = async (tribe) => {
+  leavingId.value = tribe.id;
+  actionMessage.value = '';
+  error.value = '';
+
+  try {
+    await api.delete(`/tribes/${tribe.id}/leave`);
+    actionMessage.value = `已退出「${tribe.name}」`;
+    await loadTribes();
+  } catch (err) {
+    error.value = err.message || '退出部落失败';
+  } finally {
+    leavingId.value = null;
   }
 };
 

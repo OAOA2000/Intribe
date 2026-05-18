@@ -179,7 +179,7 @@ const formatDate = (value) => {
 };
 
 const normalizeTribe = (tribe) => {
-  const members = Array.isArray(tribe.tribe_members) ? tribe.tribe_members.length : 0;
+  const members = tribe.member_count ?? (Array.isArray(tribe.tribe_members) ? tribe.tribe_members.length : 0);
   return {
     ...tribe,
     tag: categoryToTag(tribe.category, tribe.name),
