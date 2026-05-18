@@ -33,6 +33,19 @@ def get_event_detail(event_id):
     return single_or_404(rows, "Event not found")
 
 
+def list_my_registrations():
+    user_id = current_user_id()
+    return db().select(
+        "event_registrations",
+        {
+            "user_id": f"eq.{user_id}",
+            "status": "neq.cancelled",
+            "select": "*,events(id,title,start_time,location,status,tribes(id,name,category,icon))",
+            "order": "registered_at.desc",
+        },
+    )
+
+
 def create_event(data):
     require_fields(data, ("tribe_id", "title"))
     require_tribe_manager(data["tribe_id"])

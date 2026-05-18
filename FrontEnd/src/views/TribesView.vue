@@ -1,6 +1,9 @@
 <template>
   <div class="container mx-auto px-4 py-6">
     <h2 class="text-3xl font-bold mb-6">我的部落</h2>
+    <p v-if="error" class="mb-4 text-sm text-red-600">{{ error }}</p>
+    <p v-if="actionMessage" class="mb-4 text-sm text-primary">{{ actionMessage }}</p>
+    <p v-if="loading" class="mb-4 text-sm text-gray-500">加载中...</p>
     
     <!-- 部落列表 -->
     <div class="space-y-4">
@@ -12,9 +15,10 @@
           <h4 class="font-semibold text-lg">{{ tribe.name }}</h4>
           <p class="text-sm text-gray-500">{{ tribe.members }} 成员 · {{ tribe.activities }} 近期活动</p>
         </div>
-        <button class="btn-primary">进入</button>
+        <button class="btn-primary" @click="actionMessage = `已进入「${tribe.name}」`">进入</button>
       </div>
     </div>
+    <p v-if="!loading && myTribes.length === 0" class="text-sm text-gray-500">还没有加入部落，可以从推荐部落开始。</p>
     
     <!-- 推荐部落 -->
     <div class="mt-10">
@@ -26,15 +30,24 @@
           </div>
           <h4 class="font-semibold mb-1">{{ tribe.name }}</h4>
           <p class="text-sm text-gray-500 mb-3">{{ tribe.members }} 成员</p>
-          <button class="w-full btn-primary text-sm py-1">加入</button>
+          <button
+            class="w-full btn-primary text-sm py-1 disabled:opacity-60"
+            :disabled="joiningId === tribe.id"
+            @click="joinTribe(tribe)"
+          >
+            {{ joiningId === tribe.id ? '加入中...' : '加入' }}
+          </button>
         </div>
       </div>
+      <p v-if="!loading && recommendedTribes.length === 0" class="text-sm text-gray-500">所有部落都已经加入。</p>
     </div>
   </div>
 </template>
 
 <script setup>
+import { computed, onMounted, ref } from 'vue';
 import { Code, Activity, Guitar, Palette, Users } from 'lucide-vue-next';
+import { api } from '../services/api';
 
 // 获取部落图标
 const getTribeIcon = (tag) => {
@@ -52,51 +65,82 @@ const getTribeIcon = (tag) => {
   }
 };
 
-// Mock 数据 - 我的部落
-const myTribes = [
-  {
-    id: 1,
-    name: '编程爱好者',
-    members: 245,
-    activities: 5,
-    tag: 'programming'
-  },
-  {
-    id: 2,
-    name: '篮球社',
-    members: 189,
-    activities: 3,
-    tag: 'sports'
-  }
-];
+const loading = ref(false);
+const error = ref('');
+const actionMessage = ref('');
+const joiningId = ref(null);
+const allTribes = ref([]);
+const memberships = ref([]);
 
-// Mock 数据 - 推荐部落
-const recommendedTribes = [
-  {
-    id: 3,
-    name: '吉他社',
-    members: 123,
-    tag: 'music'
-  },
-  {
-    id: 4,
-    name: '摄影社',
-    members: 156,
-    tag: 'art'
-  },
-  {
-    id: 5,
-    name: '舞蹈社',
-    members: 112,
-    tag: 'art'
-  },
-  {
-    id: 6,
-    name: '电影社',
-    members: 87,
-    tag: 'art'
+const categoryToTag = (category, name = '') => {
+  if (name.includes('吉他') || name.includes('音乐')) {
+    return 'music';
   }
-];
+  const map = {
+    科技: 'programming',
+    运动: 'sports',
+    艺术: 'art'
+  };
+  return map[category] || 'all';
+};
+
+const normalizeTribe = (tribe) => ({
+  ...tribe,
+  tag: categoryToTag(tribe.category, tribe.name),
+  members: Array.isArray(tribe.tribe_members) ? tribe.tribe_members.length : 0,
+  activities: Array.isArray(tribe.events) ? tribe.events.length : 0
+});
+
+const memberTribeIds = computed(() => new Set(memberships.value.map((item) => item.tribes?.id || item.tribe_id)));
+
+const myTribes = computed(() =>
+  memberships.value
+    .map((item) => item.tribes)
+    .filter(Boolean)
+    .map(normalizeTribe)
+);
+
+const recommendedTribes = computed(() =>
+  allTribes.value
+    .filter((tribe) => !memberTribeIds.value.has(tribe.id))
+    .map(normalizeTribe)
+);
+
+const loadTribes = async () => {
+  loading.value = true;
+  error.value = '';
+
+  try {
+    const [tribeRows, memberRows] = await Promise.all([
+      api.get('/tribes'),
+      api.get('/tribes/my')
+    ]);
+    allTribes.value = tribeRows;
+    memberships.value = memberRows;
+  } catch (err) {
+    error.value = err.message || '加载部落失败';
+  } finally {
+    loading.value = false;
+  }
+};
+
+const joinTribe = async (tribe) => {
+  joiningId.value = tribe.id;
+  actionMessage.value = '';
+  error.value = '';
+
+  try {
+    await api.post(`/tribes/${tribe.id}/join`);
+    actionMessage.value = `已加入「${tribe.name}」`;
+    await loadTribes();
+  } catch (err) {
+    error.value = err.message || '加入部落失败';
+  } finally {
+    joiningId.value = null;
+  }
+};
+
+onMounted(loadTribes);
 </script>
 
 <style scoped>

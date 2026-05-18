@@ -9,3 +9,5 @@ test_code/
 !.env.example
 
 .vscode/
+
+FrontEnd/dist/assets/

@@ -24,13 +24,58 @@ FRONTEND_ORIGIN=http://localhost:5173
 
 ## Database Initialization
 
-Open the Supabase SQL editor and run these files in order:
+Open the Supabase SQL Editor. Do not type the local file path into the editor. Open each SQL file in this repository, copy its full contents, paste the SQL into the Supabase SQL Editor, then click **Run**.
+
+Run these files in order:
 
 1. `sql/001_init_schema.sql`
 2. `sql/002_rls_policies.sql`
 3. `sql/003_seed_data.sql`
 
-Seed data intentionally avoids real `auth.users` ids. The initial tribes and events are public authenticated data with nullable owners. To manage a seeded tribe, create or update a `tribe_members` row for your real Supabase user id with role `owner` or `admin`, or create a new tribe through the API after login.
+Seed data intentionally avoids real `auth.users` ids. The initial tribes and events are public authenticated data with nullable owners.
+
+To manage seeded tribes with a real user:
+
+1. Register or log in once from the frontend so Supabase Auth creates the user.
+2. In Supabase Dashboard, open **Authentication > Users** and copy that user's `User UID`.
+3. In SQL Editor, replace `YOUR_AUTH_USER_ID` below with the real UUID and run it:
+
+```sql
+insert into public.tribe_members (tribe_id, user_id, role)
+select id, 'YOUR_AUTH_USER_ID'::uuid, 'owner'
+from public.tribes
+where name in (
+  '编程爱好者',
+  '篮球社',
+  '吉他社',
+  '学术研究会',
+  '摄影社',
+  '舞蹈社',
+  '电影社',
+  '志愿者协会'
+)
+on conflict (tribe_id, user_id)
+do update set role = excluded.role;
+```
+
+Optionally also mark that user as the `owner_id` on the seed tribes:
+
+```sql
+update public.tribes
+set owner_id = 'YOUR_AUTH_USER_ID'::uuid
+where name in (
+  '编程爱好者',
+  '篮球社',
+  '吉他社',
+  '学术研究会',
+  '摄影社',
+  '舞蹈社',
+  '电影社',
+  '志愿者协会'
+);
+```
+
+After this, the user can create, update, and delete events for those tribes through the Flask API because `tribe_members.role = 'owner'` satisfies the RLS manager checks.
 
 ## Run
 
@@ -81,6 +126,7 @@ Use `FrontEnd/src/services/api.js` to call Flask endpoints. It reads the current
 - `POST /api/tribes/<tribe_id>/join`
 - `DELETE /api/tribes/<tribe_id>/leave`
 - `GET /api/events`
+- `GET /api/events/my-registrations`
 - `GET /api/events/<event_id>`
 - `POST /api/events`
 - `PATCH /api/events/<event_id>`

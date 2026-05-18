@@ -3,6 +3,7 @@ from urllib.parse import urlencode
 import requests
 from flask import current_app, g
 
+from .utils.config_check import require_supabase_config
 from .utils.errors import APIError
 
 
@@ -15,8 +16,7 @@ class SupabaseRestClient:
         self.service_role_key = current_app.config["SUPABASE_SERVICE_ROLE_KEY"]
         self.timeout = current_app.config["REQUEST_TIMEOUT_SECONDS"]
 
-        if not self.supabase_url or not self.anon_key:
-            raise APIError("SERVER_NOT_CONFIGURED", "Supabase is not configured", 500)
+        require_supabase_config(self.supabase_url, self.anon_key)
 
         if use_service_role:
             if not self.service_role_key:
@@ -47,13 +47,21 @@ class SupabaseRestClient:
         if prefer:
             headers["Prefer"] = prefer
 
-        response = requests.request(
-            method,
-            self._url(table, params),
-            headers=headers,
-            json=json,
-            timeout=self.timeout,
-        )
+        try:
+            response = requests.request(
+                method,
+                self._url(table, params),
+                headers=headers,
+                json=json,
+                timeout=self.timeout,
+            )
+        except requests.RequestException as exc:
+            current_app.logger.warning("Failed to reach Supabase REST: %s", exc)
+            raise APIError(
+                "SUPABASE_REST_UNAVAILABLE",
+                "Could not reach Supabase REST API. Check SUPABASE_URL, keys, network access, and project status.",
+                502,
+            ) from exc
 
         if response.status_code >= 400:
             try:

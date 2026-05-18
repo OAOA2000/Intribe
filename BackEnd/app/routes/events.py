@@ -6,6 +6,7 @@ from ..services.events_service import (
     create_event,
     delete_event,
     get_event_detail,
+    list_my_registrations,
     list_events,
     register_event,
     update_event,
@@ -26,6 +27,12 @@ def index():
             search=request.args.get("search"),
         )
     )
+
+
+@events_bp.get("/my-registrations")
+@require_auth
+def my_registrations():
+    return success_response(list_my_registrations())
 
 
 @events_bp.get("/<event_id>")
