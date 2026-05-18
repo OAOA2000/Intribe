@@ -3,6 +3,15 @@
     <!-- 头部 Banner -->
     <div class="mb-8">
       <h2 class="text-3xl font-bold mb-4">发现你的兴趣部落</h2>
+      <form class="mb-4 flex flex-col sm:flex-row gap-2" @submit.prevent="submitSearch">
+        <input
+          v-model="localSearchKeyword"
+          type="text"
+          placeholder="搜索兴趣部落或活动..."
+          class="w-full sm:max-w-md px-4 py-2 rounded-lg bg-white border border-gray-200 focus:outline-none focus:ring-2 focus:ring-primary/50"
+        />
+        <button class="btn-primary sm:w-auto" type="submit">搜索</button>
+      </form>
       <div v-if="searchKeyword" class="mb-4 flex items-center gap-3">
         <span class="text-sm text-gray-500">搜索：{{ searchKeyword }}</span>
         <button class="text-sm text-primary hover:underline" @click="clearSearch">清除</button>
@@ -128,7 +137,9 @@ const cancellingId = ref(null);
 const tribes = ref([]);
 const activities = ref([]);
 const registrations = ref([]);
+const registeredEventIds = ref(new Set());
 const searchKeyword = computed(() => (typeof route.query.search === 'string' ? route.query.search.trim() : ''));
+const localSearchKeyword = ref(searchKeyword.value);
 
 // 切换标签
 const switchTag = (tagId) => {
@@ -224,10 +235,17 @@ const normalizeActivity = (event) => ({
   location: event.location || '地点待定'
 });
 
-const isRegistered = (eventId) => registrations.value.some((registration) => registration.event_id === eventId);
+const getRegistrationEventId = (registration) => registration.event_id || registration.events?.id;
+
+const setRegistrations = (rows) => {
+  registrations.value = rows;
+  registeredEventIds.value = new Set(rows.map(getRegistrationEventId).filter(Boolean));
+};
+
+const isRegistered = (eventId) => registeredEventIds.value.has(eventId);
 
 const loadRegistrations = async () => {
-  registrations.value = await api.get('/events/my-registrations');
+  setRegistrations(await api.get('/events/my-registrations'));
 };
 
 const loadPageData = async () => {
@@ -242,7 +260,7 @@ const loadPageData = async () => {
     ]);
     tribes.value = tribeRows.map(normalizeTribe);
     activities.value = eventRows.map(normalizeActivity);
-    registrations.value = registrationRows;
+    setRegistrations(registrationRows);
   } catch (err) {
     error.value = err.message || '加载数据失败，请确认后端已启动并完成 Supabase 初始化';
   } finally {
@@ -250,7 +268,16 @@ const loadPageData = async () => {
   }
 };
 
+const submitSearch = async () => {
+  const keyword = localSearchKeyword.value.trim();
+  await router.push({
+    path: '/',
+    query: keyword ? { search: keyword } : {}
+  });
+};
+
 const clearSearch = async () => {
+  localSearchKeyword.value = '';
   await router.push({ path: '/' });
 };
 
@@ -261,6 +288,7 @@ const registerActivity = async (activity) => {
 
   try {
     await api.post(`/events/${activity.id}/register`);
+    registeredEventIds.value = new Set([...registeredEventIds.value, activity.id]);
     await loadRegistrations();
     actionMessage.value = `已报名「${activity.title}」`;
   } catch (err) {
@@ -277,6 +305,9 @@ const cancelRegistration = async (activity) => {
 
   try {
     await api.delete(`/events/${activity.id}/register`);
+    const nextIds = new Set(registeredEventIds.value);
+    nextIds.delete(activity.id);
+    registeredEventIds.value = nextIds;
     await loadRegistrations();
     actionMessage.value = `已退出「${activity.title}」报名`;
   } catch (err) {
@@ -304,6 +335,9 @@ const filteredActivities = computed(() => {
 
 onMounted(loadPageData);
 watch(searchKeyword, loadPageData);
+watch(searchKeyword, (value) => {
+  localSearchKeyword.value = value;
+});
 </script>
 
 <style scoped>
