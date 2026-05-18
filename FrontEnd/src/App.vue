@@ -7,11 +7,14 @@
         <h1 class="text-xl font-bold text-primary">兴趣部落</h1>
         <div class="flex items-center gap-4">
           <div class="relative w-64 hidden md:block">
-            <input
-              type="text"
-              placeholder="搜索兴趣部落或活动..."
-              class="w-full px-4 py-2 rounded-full bg-white/80 border border-gray-200 focus:outline-none focus:ring-2 focus:ring-primary/50"
-            />
+            <form @submit.prevent="submitSearch">
+              <input
+                v-model="searchKeyword"
+                type="text"
+                placeholder="搜索兴趣部落或活动..."
+                class="w-full px-4 py-2 rounded-full bg-white/80 border border-gray-200 focus:outline-none focus:ring-2 focus:ring-primary/50"
+              />
+            </form>
           </div>
           <div class="relative">
             <button class="p-2 rounded-full hover:bg-gray-100 transition-colors">
@@ -102,7 +105,7 @@
 </template>
 
 <script setup>
-import { computed, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { Bell, User, Compass, Users, MessageCircle, BarChart2 } from 'lucide-vue-next';
 import { authState, signOutUser } from './stores/auth';
@@ -110,9 +113,26 @@ import { authState, signOutUser } from './stores/auth';
 const route = useRoute();
 const router = useRouter();
 const isSigningOut = ref(false);
+const searchKeyword = ref('');
 
 const hideShell = computed(() => Boolean(route.meta.hideShell));
 const userLabel = computed(() => authState.user?.email || '未登录');
+
+watch(
+  () => route.query.search,
+  (value) => {
+    searchKeyword.value = typeof value === 'string' ? value : '';
+  },
+  { immediate: true }
+);
+
+const submitSearch = async () => {
+  const keyword = searchKeyword.value.trim();
+  await router.push({
+    path: '/',
+    query: keyword ? { search: keyword } : {}
+  });
+};
 
 const handleSignOut = async () => {
   isSigningOut.value = true;

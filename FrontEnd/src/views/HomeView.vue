@@ -3,6 +3,10 @@
     <!-- 头部 Banner -->
     <div class="mb-8">
       <h2 class="text-3xl font-bold mb-4">发现你的兴趣部落</h2>
+      <div v-if="searchKeyword" class="mb-4 flex items-center gap-3">
+        <span class="text-sm text-gray-500">搜索：{{ searchKeyword }}</span>
+        <button class="text-sm text-primary hover:underline" @click="clearSearch">清除</button>
+      </div>
       <!-- 标签筛选 -->
       <div class="flex flex-wrap gap-2">
         <button 
@@ -79,7 +83,8 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, watch } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 import { MapPin, Code, Activity, Guitar, Book, Palette, Users, Calendar } from 'lucide-vue-next';
 import { api } from '../services/api';
 
@@ -95,12 +100,15 @@ const tags = [
 
 // 当前选中的标签
 const activeTag = ref('all');
+const route = useRoute();
+const router = useRouter();
 const loading = ref(false);
 const error = ref('');
 const actionMessage = ref('');
 const registeringId = ref(null);
 const tribes = ref([]);
 const activities = ref([]);
+const searchKeyword = computed(() => (typeof route.query.search === 'string' ? route.query.search.trim() : ''));
 
 // 切换标签
 const switchTag = (tagId) => {
@@ -202,8 +210,8 @@ const loadPageData = async () => {
 
   try {
     const [tribeRows, eventRows] = await Promise.all([
-      api.get('/tribes'),
-      api.get('/events')
+      api.get('/tribes', { search: searchKeyword.value }),
+      api.get('/events', { search: searchKeyword.value })
     ]);
     tribes.value = tribeRows.map(normalizeTribe);
     activities.value = eventRows.map(normalizeActivity);
@@ -212,6 +220,10 @@ const loadPageData = async () => {
   } finally {
     loading.value = false;
   }
+};
+
+const clearSearch = async () => {
+  await router.push({ path: '/' });
 };
 
 const registerActivity = async (activity) => {
@@ -246,6 +258,7 @@ const filteredActivities = computed(() => {
 });
 
 onMounted(loadPageData);
+watch(searchKeyword, loadPageData);
 </script>
 
 <style scoped>

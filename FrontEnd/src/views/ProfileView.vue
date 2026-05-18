@@ -71,14 +71,29 @@
           </div>
           <ChevronRight class="w-5 h-5 text-gray-400" />
         </li>
-        <li class="flex items-center justify-between p-3 hover:bg-gray-50 rounded-lg">
-          <div class="flex items-center gap-3">
-            <div class="w-10 h-10 rounded-full bg-primary/20 flex items-center justify-center">
-              <Calendar class="w-5 h-5 text-primary" />
+        <li>
+          <button class="w-full flex items-center justify-between p-3 hover:bg-gray-50 rounded-lg text-left" @click="showMyActivities = !showMyActivities">
+            <div class="flex items-center gap-3">
+              <div class="w-10 h-10 rounded-full bg-primary/20 flex items-center justify-center">
+                <Calendar class="w-5 h-5 text-primary" />
+              </div>
+              <span>我的活动</span>
             </div>
-            <span>我的活动</span>
+            <ChevronRight :class="['w-5 h-5 text-gray-400 transition-transform', showMyActivities ? 'rotate-90' : '']" />
+          </button>
+          <div v-if="showMyActivities" class="mt-2 space-y-3 px-3 pb-3">
+            <div v-for="registration in myRegistrations" :key="registration.id" class="rounded-lg bg-gray-50 p-3">
+              <div class="flex items-center justify-between gap-3">
+                <h4 class="font-semibold">{{ registration.events?.title || '未命名活动' }}</h4>
+                <span class="text-xs px-2 py-1 bg-accent/20 text-accent rounded-full">{{ statusLabel(registration.status) }}</span>
+              </div>
+              <p class="mt-1 text-sm text-gray-500">
+                {{ registration.events?.tribes?.name || '未知部落' }} · {{ formatDate(registration.events?.start_time) }}
+              </p>
+              <p class="mt-1 text-sm text-gray-500">{{ registration.events?.location || '地点待定' }}</p>
+            </div>
+            <p v-if="myRegistrations.length === 0" class="text-sm text-gray-500">暂无报名活动</p>
           </div>
-          <ChevronRight class="w-5 h-5 text-gray-400" />
         </li>
         <li class="flex items-center justify-between p-3 hover:bg-gray-50 rounded-lg">
           <div class="flex items-center gap-3">
@@ -113,6 +128,8 @@ const profile = ref(null);
 const joinedCount = ref(0);
 const registeredCount = ref(0);
 const managedEventCount = ref(0);
+const myRegistrations = ref([]);
+const showMyActivities = ref(false);
 const loading = ref(false);
 const saving = ref(false);
 const error = ref('');
@@ -145,12 +162,33 @@ const fillForm = (data) => {
   form.bio = data?.bio || '';
 };
 
+const statusLabel = (status) => {
+  const map = {
+    registered: '已报名',
+    checked_in: '已签到',
+    cancelled: '已取消'
+  };
+  return map[status] || status || '未知';
+};
+
+const formatDate = (value) => {
+  if (!value) {
+    return '时间待定';
+  }
+  return new Intl.DateTimeFormat('zh-CN', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit'
+  }).format(new Date(value));
+};
+
 const loadProfile = async () => {
   loading.value = true;
   error.value = '';
 
   try {
-    const [profileData, myTribes, managedEvents, myRegistrations] = await Promise.all([
+    const [profileData, myTribes, managedEvents, registrationsData] = await Promise.all([
       api.get('/profile/me'),
       api.get('/tribes/my'),
       api.get('/dashboard/events'),
@@ -159,7 +197,8 @@ const loadProfile = async () => {
     fillForm(profileData);
     joinedCount.value = myTribes.length;
     managedEventCount.value = managedEvents.length;
-    registeredCount.value = myRegistrations.length;
+    registeredCount.value = registrationsData.length;
+    myRegistrations.value = registrationsData;
   } catch (err) {
     error.value = err.message || '加载个人资料失败';
   } finally {
