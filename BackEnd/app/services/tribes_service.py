@@ -20,6 +20,7 @@ def _add_counts_to_tribes(tribes):
 
     members_by_tribe = {tribe_id: set() for tribe_id in tribe_ids}
     events_by_tribe = {tribe_id: 0 for tribe_id in tribe_ids}
+    posts_by_tribe = {tribe_id: 0 for tribe_id in tribe_ids}
 
     for tribe in tribes:
         if tribe.get("owner_id"):
@@ -39,9 +40,17 @@ def _add_counts_to_tribes(tribes):
     for event in event_rows:
         events_by_tribe[event["tribe_id"]] = events_by_tribe.get(event["tribe_id"], 0) + 1
 
+    post_rows = _service_db().select(
+        "tribe_posts",
+        {"tribe_id": id_filter, "deleted_at": "is.null", "select": "tribe_id,id"},
+    )
+    for post in post_rows:
+        posts_by_tribe[post["tribe_id"]] = posts_by_tribe.get(post["tribe_id"], 0) + 1
+
     for tribe in tribes:
         tribe["member_count"] = len(members_by_tribe.get(tribe["id"], set()))
         tribe["event_count"] = events_by_tribe.get(tribe["id"], 0)
+        tribe["post_count"] = posts_by_tribe.get(tribe["id"], 0)
 
     return tribes
 

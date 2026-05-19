@@ -13,7 +13,9 @@
         </div>
         <div class="flex-1">
           <h4 class="font-semibold text-lg">{{ tribe.name }}</h4>
-          <p class="text-sm text-gray-500">{{ tribe.members }} 成员 · {{ tribe.activities }} 近期活动</p>
+          <p class="text-sm text-gray-500">
+            {{ tribe.members }} 成员 · {{ tribe.posts }} 帖子 · {{ tribe.activities }} 近期活动
+          </p>
         </div>
         <div class="flex gap-2">
           <button class="btn-primary" @click="router.push(`/tribes/${tribe.id}`)">进入</button>
@@ -39,7 +41,7 @@
             <component :is="getTribeIcon(tribe.tag)" class="w-8 h-8 text-primary" />
           </div>
           <h4 class="font-semibold mb-1">{{ tribe.name }}</h4>
-          <p class="text-sm text-gray-500 mb-3">{{ tribe.members }} 成员</p>
+          <p class="text-sm text-gray-500 mb-3">{{ tribe.members }} 成员 · {{ tribe.posts }} 帖子</p>
           <button
             class="w-full btn-primary text-sm py-1 disabled:opacity-60"
             :disabled="joiningId === tribe.id"
@@ -102,7 +104,8 @@ const normalizeTribe = (tribe) => ({
   ...tribe,
   tag: categoryToTag(tribe.category, tribe.name),
   members: tribe.member_count ?? (Array.isArray(tribe.tribe_members) ? tribe.tribe_members.length : 0),
-  activities: tribe.event_count ?? (Array.isArray(tribe.events) ? tribe.events.length : 0)
+  activities: tribe.event_count ?? (Array.isArray(tribe.events) ? tribe.events.length : 0),
+  posts: tribe.post_count ?? 0
 });
 
 const memberTribeIds = computed(() => new Set(memberships.value.map((item) => item.tribes?.id || item.tribe_id)));
