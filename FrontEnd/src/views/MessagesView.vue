@@ -485,18 +485,45 @@ const digestText = computed(() => {
   return parts.join('\n');
 });
 
+const writeClipboardText = async (text) => {
+  if (navigator.clipboard?.writeText && window.isSecureContext) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+
+  const textArea = document.createElement('textarea');
+  textArea.value = text;
+  textArea.setAttribute('readonly', '');
+  textArea.style.position = 'fixed';
+  textArea.style.top = '-9999px';
+  textArea.style.left = '-9999px';
+  document.body.appendChild(textArea);
+  textArea.focus();
+  textArea.select();
+
+  try {
+    const copied = document.execCommand('copy');
+    if (!copied) {
+      throw new Error('copy command failed');
+    }
+  } finally {
+    document.body.removeChild(textArea);
+  }
+};
+
 const copyDigest = async () => {
   if (!digestText.value) {
     return;
   }
   try {
-    await navigator.clipboard.writeText(digestText.value);
+    await writeClipboardText(digestText.value);
     digestCopied.value = true;
     window.setTimeout(() => {
       digestCopied.value = false;
     }, 1800);
   } catch (err) {
-    digestError.value = '复制失败，请手动选择文本保存';
+    digestCopied.value = false;
+    window.alert('复制失败，请手动选择文本保存');
   }
 };
 
