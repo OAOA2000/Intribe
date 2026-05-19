@@ -33,3 +33,36 @@ def mark_message_read(message_id):
     if not rows:
         raise APIError("NOT_FOUND", "Message not found", 404)
     return rows[0]
+
+
+def mark_all_messages_read():
+    user_id = current_user_id()
+    rows = db().update("messages", {"is_read": True}, {"user_id": f"eq.{user_id}", "is_read": "eq.false"})
+    return {"updated": len(rows or [])}
+
+
+def delete_message(message_id):
+    user_id = current_user_id()
+    rows = db().delete("messages", {"id": f"eq.{message_id}", "user_id": f"eq.{user_id}"})
+    if not rows:
+        raise APIError("NOT_FOUND", "Message not found", 404)
+    return {"deleted": True, "message_id": message_id}
+
+
+def delete_messages(message_ids):
+    user_id = current_user_id()
+    if not isinstance(message_ids, list) or not message_ids:
+        raise APIError("VALIDATION_ERROR", "message_ids must be a non-empty list", 400)
+
+    clean_ids = [str(message_id) for message_id in message_ids if message_id]
+    if not clean_ids:
+        raise APIError("VALIDATION_ERROR", "message_ids must be a non-empty list", 400)
+
+    rows = db().delete(
+        "messages",
+        {
+            "id": f"in.({','.join(clean_ids)})",
+            "user_id": f"eq.{user_id}",
+        },
+    )
+    return {"deleted": len(rows or []), "message_ids": clean_ids}

@@ -161,6 +161,12 @@ to authenticated
 using (user_id = auth.uid())
 with check (user_id = auth.uid());
 
+drop policy if exists "messages_delete_own" on public.messages;
+create policy "messages_delete_own"
+on public.messages for delete
+to authenticated
+using (user_id = auth.uid());
+
 drop policy if exists "tribe_posts_select_authenticated" on public.tribe_posts;
 create policy "tribe_posts_select_authenticated"
 on public.tribe_posts for select

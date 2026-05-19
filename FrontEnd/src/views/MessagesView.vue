@@ -1,6 +1,54 @@
 <template>
   <div class="container mx-auto px-4 py-6">
-    <h2 class="text-3xl font-bold mb-6">消息中心</h2>
+    <div class="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <div>
+        <h2 class="text-3xl font-bold">消息中心</h2>
+        <p v-if="selectionMode" class="mt-1 text-sm text-gray-500">已选择 {{ selectedMessageIds.size }} 条消息</p>
+      </div>
+      <div class="flex flex-wrap gap-2">
+        <button
+          v-if="!selectionMode"
+          class="rounded-lg bg-gray-100 px-4 py-2 text-sm text-gray-700 hover:bg-gray-200"
+          type="button"
+          @click="selectionMode = true"
+        >
+          选择消息
+        </button>
+        <button
+          v-if="!selectionMode && unreadMessages.length"
+          class="btn-secondary text-sm"
+          type="button"
+          @click="markAllAsRead"
+        >
+          一键已读
+        </button>
+        <button
+          v-if="selectionMode"
+          class="rounded-lg bg-gray-100 px-4 py-2 text-sm text-gray-700 hover:bg-gray-200"
+          type="button"
+          @click="toggleSelectAll"
+        >
+          {{ allSelected ? '取消全选' : '全部选择' }}
+        </button>
+        <button
+          v-if="selectionMode"
+          class="rounded-lg bg-red-600 px-4 py-2 text-sm text-white hover:bg-red-700 disabled:opacity-60"
+          type="button"
+          :disabled="selectedMessageIds.size === 0"
+          @click="deleteSelectedMessages"
+        >
+          删除已选
+        </button>
+        <button
+          v-if="selectionMode"
+          class="rounded-lg bg-gray-100 px-4 py-2 text-sm text-gray-700 hover:bg-gray-200"
+          type="button"
+          @click="exitSelectionMode"
+        >
+          退出选择
+        </button>
+      </div>
+    </div>
     <p v-if="loading" class="mb-4 text-sm text-gray-500">加载中...</p>
     <p v-if="error" class="mb-4 text-sm text-red-600">{{ error }}</p>
     
@@ -29,6 +77,14 @@
             :class="message.unread ? 'bg-primary/5' : 'bg-gray-50'"
           >
             <div class="flex items-start gap-4">
+              <label v-if="selectionMode" class="mt-3 flex shrink-0 items-center">
+                <input
+                  class="h-5 w-5 rounded border-gray-300 text-primary focus:ring-primary"
+                  type="checkbox"
+                  :checked="selectedMessageIds.has(message.id)"
+                  @change="toggleMessageSelection(message.id)"
+                />
+              </label>
               <div class="relative flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-primary/20">
                 <component :is="getMessageIcon(message.type)" class="h-6 w-6 text-primary" />
                 <span v-if="message.unread" class="absolute -bottom-1 -right-1 h-3 w-3 rounded-full bg-red-500"></span>
@@ -42,7 +98,7 @@
               </div>
               <div class="flex shrink-0 flex-col gap-2">
                 <button
-                  v-if="message.post_id"
+                  v-if="message.post_id && !selectionMode"
                   class="btn-primary px-3 py-1.5 text-sm"
                   type="button"
                   @click="goToMessage(message)"
@@ -50,12 +106,20 @@
                   前往
                 </button>
                 <button
-                  v-if="message.unread"
+                  v-if="message.unread && !selectionMode"
                   class="rounded-lg bg-gray-100 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-200"
                   type="button"
                   @click="markAsRead(message)"
                 >
                   已读
+                </button>
+                <button
+                  v-if="!selectionMode"
+                  class="rounded-lg bg-red-50 px-3 py-1.5 text-sm text-red-600 hover:bg-red-100"
+                  type="button"
+                  @click="deleteSingleMessage(message)"
+                >
+                  删除
                 </button>
               </div>
             </div>
@@ -94,6 +158,11 @@ const getMessageIcon = (type) => {
 const messages = ref([]);
 const loading = ref(false);
 const error = ref('');
+const selectionMode = ref(false);
+const selectedMessageIds = ref(new Set());
+
+const unreadMessages = computed(() => messages.value.filter((message) => message.unread));
+const allSelected = computed(() => messages.value.length > 0 && selectedMessageIds.value.size === messages.value.length);
 
 const groupedMessages = computed(() => {
   const groups = new Map();
@@ -167,6 +236,84 @@ const markAsRead = async (message) => {
     }
   } catch (err) {
     error.value = err.message || '标记已读失败';
+  }
+};
+
+const markAllAsRead = async () => {
+  if (!unreadMessages.value.length) {
+    return;
+  }
+
+  error.value = '';
+  try {
+    await api.patch('/messages/read-all');
+    messages.value = messages.value.map((message) => ({
+      ...message,
+      is_read: true,
+      unread: false
+    }));
+    window.dispatchEvent(new CustomEvent('messages-updated'));
+  } catch (err) {
+    error.value = err.message || '一键已读失败';
+  }
+};
+
+const removeMessagesLocally = (ids) => {
+  const idSet = new Set(ids);
+  messages.value = messages.value.filter((message) => !idSet.has(message.id));
+  selectedMessageIds.value = new Set([...selectedMessageIds.value].filter((id) => !idSet.has(id)));
+  window.dispatchEvent(new CustomEvent('messages-updated'));
+};
+
+const deleteSingleMessage = async (message) => {
+  error.value = '';
+
+  try {
+    await api.delete(`/messages/${message.id}`);
+    removeMessagesLocally([message.id]);
+  } catch (err) {
+    error.value = err.message || '删除消息失败';
+  }
+};
+
+const toggleMessageSelection = (messageId) => {
+  const next = new Set(selectedMessageIds.value);
+  if (next.has(messageId)) {
+    next.delete(messageId);
+  } else {
+    next.add(messageId);
+  }
+  selectedMessageIds.value = next;
+};
+
+const toggleSelectAll = () => {
+  if (allSelected.value) {
+    selectedMessageIds.value = new Set();
+    return;
+  }
+  selectedMessageIds.value = new Set(messages.value.map((message) => message.id));
+};
+
+const exitSelectionMode = () => {
+  selectionMode.value = false;
+  selectedMessageIds.value = new Set();
+};
+
+const deleteSelectedMessages = async () => {
+  const ids = [...selectedMessageIds.value];
+  if (!ids.length) {
+    return;
+  }
+
+  error.value = '';
+  try {
+    await api.post('/messages/bulk-delete', { message_ids: ids });
+    removeMessagesLocally(ids);
+    if (messages.value.length === 0) {
+      exitSelectionMode();
+    }
+  } catch (err) {
+    error.value = err.message || '删除已选消息失败';
   }
 };
 
