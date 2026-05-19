@@ -80,3 +80,38 @@ def tribe_digest_prompt():
             "todos": ["string"],
         },
     )
+
+
+def post_summary_prompt():
+    return build_json_prompt(
+        (
+            "你负责总结校园兴趣部落帖子详情页中的正文和评论讨论。"
+            "只能基于输入的帖子和评论内容总结，不要编造不存在的观点、人物、结论或行动项。"
+            "需要区分“已达成共识”和“仍在讨论的问题”；如果没有评论，也要基于帖子正文给出简洁总结。"
+            "对争议内容保持中立，不要替任何一方下判断。"
+            "输出语言必须为中文，风格简洁，适合校园社区阅读。"
+            "不要输出 Markdown，不要泄露数据库字段名。"
+        ),
+        (
+            "帖子标题：{post_title}\n"
+            "帖子作者：{post_author}\n"
+            "发布时间：{post_created_at}\n"
+            "帖子正文：{post_content}\n"
+            "评论数量：{comment_count}\n"
+            "压缩后的评论上下文：{comments_context}\n\n"
+            "请生成结构化讨论总结。"
+        ),
+        {
+            "post_title": "string，帖子标题",
+            "summary": "string，1 到 3 句中文，概括帖子正文和讨论",
+            "key_points": ["string，关键观点或已形成的共识"],
+            "discussion_threads": [
+                {
+                    "topic": "string，讨论主题",
+                    "summary": "string，中立总结该主题下的讨论",
+                }
+            ],
+            "open_questions": ["string，仍未解决或仍在讨论的问题"],
+            "action_items": ["string，明确出现的后续行动或建议，没有则为空数组"],
+        },
+    )

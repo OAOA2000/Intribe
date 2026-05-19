@@ -2,7 +2,7 @@ import json
 from datetime import datetime, time, timedelta, timezone
 
 from .ai_context_service import get_current_profile_context
-from .ai_prompt_service import activity_copy_prompt, tribe_digest_prompt
+from .ai_prompt_service import activity_copy_prompt, post_summary_prompt, tribe_digest_prompt
 from .common import current_user_id, db, single_or_404
 from .llm_service import invoke_json
 from ..utils.errors import APIError
@@ -100,6 +100,12 @@ def _text(value, max_length=160):
     if len(text) > max_length:
         return f"{text[:max_length].rstrip()}..."
     return text
+
+
+def _normalize_profile_name(profile, fallback="校园同学"):
+    if not profile:
+        return fallback
+    return profile.get("display_name") or profile.get("email") or fallback
 
 
 def _ensure_tribe_access(tribe_id):
@@ -356,3 +362,174 @@ def generate_tribe_digest(data):
         raise
 
     return _normalize_digest_output(result, allowed_target_ids=_context_target_ids(context))
+
+
+def _load_visible_post_for_summary(post_id):
+    rows = db().select(
+        "tribe_posts",
+        {
+            "id": f"eq.{post_id}",
+            "deleted_at": "is.null",
+            "select": "id,title,content,author_id,created_at,tribe_id,tribes(id,name,owner_id)",
+            "limit": "1",
+        },
+    )
+    return single_or_404(rows, "Post not found")
+
+
+def _ensure_post_summary_access(post):
+    user_id = current_user_id()
+    tribe = post.get("tribes") or {}
+    if tribe.get("owner_id") == user_id:
+        return
+
+    membership = db().select(
+        "tribe_members",
+        {
+            "tribe_id": f"eq.{post.get('tribe_id')}",
+            "user_id": f"eq.{user_id}",
+            "select": "id,role",
+            "limit": "1",
+        },
+    )
+    if not membership:
+        raise APIError("FORBIDDEN", "You do not have permission to summarize this post", 403)
+
+
+def _load_post_summary_comments(post_id):
+    return db().select(
+        "tribe_comments",
+        {
+            "post_id": f"eq.{post_id}",
+            "deleted_at": "is.null",
+            "select": "id,parent_id,author_id,content,created_at",
+            "order": "created_at.asc",
+            "limit": "160",
+        },
+    )
+
+
+def _load_visible_profiles(author_ids):
+    if not author_ids:
+        return {}
+    rows = db().select(
+        "profiles",
+        {
+            "id": f"in.({','.join(author_ids)})",
+            "select": "id,email,display_name",
+            "limit": "200",
+        },
+    )
+    return {row["id"]: row for row in rows if row.get("id")}
+
+
+def _comment_depth(comment_id, comments_by_id):
+    depth = 0
+    current = comments_by_id.get(comment_id)
+    seen = set()
+    while current and current.get("parent_id") and current.get("parent_id") not in seen:
+        seen.add(current["parent_id"])
+        parent = comments_by_id.get(current["parent_id"])
+        if not parent:
+            break
+        depth += 1
+        current = parent
+    return min(depth, 4)
+
+
+def _compress_post_comments(comments, profiles_by_id, max_total_chars=12000):
+    if not comments:
+        return "暂无评论。"
+
+    comments_by_id = {comment["id"]: comment for comment in comments}
+    lines = []
+    total = 0
+    for index, comment in enumerate(comments[:120], start=1):
+        author = _normalize_profile_name(profiles_by_id.get(comment.get("author_id")))
+        kind = "回复" if comment.get("parent_id") else "评论"
+        indent = "  " * _comment_depth(comment.get("id"), comments_by_id)
+        content = _text(comment.get("content"), 360)
+        line = f"{indent}{index}. {author}（{kind}，{comment.get('created_at') or '时间未知'}）：{content}"
+        if total + len(line) > max_total_chars:
+            lines.append("...（后续评论已因长度限制省略）")
+            break
+        lines.append(line)
+        total += len(line)
+    return "\n".join(lines)
+
+
+def _normalize_string_list(value, limit=8, max_length=140):
+    if not isinstance(value, list):
+        return []
+    return [_text(item, max_length) for item in value if str(item or "").strip()][:limit]
+
+
+def _normalize_post_summary_output(result, post, comment_count):
+    threads = []
+    raw_threads = result.get("discussion_threads") if isinstance(result.get("discussion_threads"), list) else []
+    for item in raw_threads[:6]:
+        if not isinstance(item, dict):
+            continue
+        topic = _text(item.get("topic") or "讨论主题", 80)
+        summary = _text(item.get("summary"), 220)
+        if summary:
+            threads.append({"topic": topic, "summary": summary})
+
+    return {
+        "post_title": _text(result.get("post_title") or post.get("title"), 120),
+        "summary": _text(result.get("summary") or "暂无可总结内容。", 500),
+        "key_points": _normalize_string_list(result.get("key_points"), limit=8),
+        "discussion_threads": threads,
+        "open_questions": _normalize_string_list(result.get("open_questions"), limit=6),
+        "action_items": _normalize_string_list(result.get("action_items"), limit=6),
+        "comment_count": comment_count,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+def generate_post_summary(data):
+    require_fields(data, ("post_id",))
+    post_id = str(data.get("post_id")).strip()
+    post = _load_visible_post_for_summary(post_id)
+    _ensure_post_summary_access(post)
+
+    comments = _load_post_summary_comments(post_id)
+    author_ids = sorted(
+        {
+            author_id
+            for author_id in [post.get("author_id"), *[comment.get("author_id") for comment in comments]]
+            if author_id
+        }
+    )
+    profiles_by_id = _load_visible_profiles(author_ids)
+    post_author = _normalize_profile_name(profiles_by_id.get(post.get("author_id")))
+    comments_context = _compress_post_comments(comments, profiles_by_id)
+
+    try:
+        result = invoke_json(
+            post_summary_prompt(),
+            {
+                "post_title": _text(post.get("title"), 120),
+                "post_author": post_author,
+                "post_created_at": post.get("created_at") or "",
+                "post_content": _text(post.get("content"), 5000),
+                "comment_count": len(comments),
+                "comments_context": comments_context,
+            },
+            required_fields=("post_title", "summary"),
+            defaults={
+                "post_title": post.get("title") or "",
+                "summary": "",
+                "key_points": [],
+                "discussion_threads": [],
+                "open_questions": [],
+                "action_items": [],
+            },
+            temperature=0.2,
+        )
+    except APIError as exc:
+        if exc.code.startswith("LLM_"):
+            raise APIError(exc.code, "AI 总结暂时生成失败，请稍后重试。", exc.status_code) from exc
+        raise
+
+    return _normalize_post_summary_output(result, post, len(comments))

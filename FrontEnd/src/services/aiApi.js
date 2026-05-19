@@ -16,5 +16,7 @@ export const aiApi = {
   generateActivityCopy: (body) =>
     withAiError(() => apiRequest('/ai/activity-copy', { method: 'POST', body })),
   generateTribeDigest: (params) =>
-    withAiError(() => apiRequest('/ai/tribe-digest', { method: 'POST', body: params }))
+    withAiError(() => apiRequest('/ai/tribe-digest', { method: 'POST', body: params })),
+  generatePostSummary: (postId) =>
+    withAiError(() => apiRequest('/ai/post-summary', { method: 'POST', body: { post_id: postId } }))
 };

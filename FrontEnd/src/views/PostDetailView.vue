@@ -54,6 +54,27 @@
       <p v-else class="mt-5 whitespace-pre-line text-sm leading-7 text-gray-700">{{ post.content }}</p>
     </article>
 
+    <section v-if="post" class="mb-6 rounded-2xl border border-primary/10 bg-white p-5 shadow-md">
+      <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <p class="text-xs font-medium uppercase tracking-wide text-primary">AI 总结</p>
+          <h3 class="mt-1 text-lg font-semibold text-gray-900">讨论速览</h3>
+        </div>
+        <button
+          class="inline-flex items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
+          type="button"
+          :disabled="summaryLoading"
+          @click="openPostSummary"
+        >
+          <Sparkles class="h-4 w-4" />
+          {{ summaryLoading ? '总结中...' : 'AI 总结讨论' }}
+        </button>
+      </div>
+      <p class="mt-3 text-sm leading-6 text-gray-500">
+        总结会基于当前帖子正文和可见评论临时生成，不会写入数据库。
+      </p>
+    </section>
+
     <section v-if="post" class="rounded-2xl bg-white p-5 shadow-md">
       <div class="mb-4 flex items-center justify-between">
         <h3 class="text-xl font-semibold">评论</h3>
@@ -88,14 +109,114 @@
         还没有评论，来补上第一句回应吧。
       </p>
     </section>
+
+    <div
+      v-if="summaryDialogOpen"
+      class="fixed inset-0 z-50 flex items-center justify-center bg-gray-950/40 px-4 py-6 backdrop-blur-sm"
+      @click.self="closeSummaryDialog"
+    >
+      <section class="max-h-[86vh] w-full max-w-3xl overflow-hidden rounded-3xl border border-white/70 bg-white/95 shadow-2xl">
+        <header class="flex items-start justify-between gap-4 border-b border-gray-100 px-6 py-5">
+          <div>
+            <p class="text-xs font-medium uppercase tracking-wide text-primary">AI 总结讨论</p>
+            <h3 class="mt-1 text-2xl font-bold text-gray-900">{{ post?.title || '帖子讨论' }}</h3>
+          </div>
+          <button
+            class="rounded-full bg-gray-100 p-2 text-gray-500 hover:bg-gray-200"
+            type="button"
+            aria-label="关闭"
+            @click="closeSummaryDialog"
+          >
+            <X class="h-5 w-5" />
+          </button>
+        </header>
+
+        <div class="max-h-[62vh] overflow-y-auto px-6 py-5">
+          <div v-if="summaryLoading" class="rounded-2xl bg-primary/5 p-5 text-sm text-primary">
+            AI 正在整理帖子正文和评论区讨论...
+          </div>
+
+          <div v-else-if="summaryError" class="rounded-2xl bg-red-50 p-5 text-sm text-red-600">
+            {{ summaryError }}
+          </div>
+
+          <div v-else-if="summaryEmpty" class="rounded-2xl bg-gray-50 p-5 text-sm text-gray-500">
+            这个帖子还没有评论，以下总结主要基于帖子正文生成。
+          </div>
+
+          <div v-if="summaryResult" class="space-y-5">
+            <article class="rounded-2xl bg-primary/5 p-4">
+              <h4 class="mb-2 text-sm font-semibold text-gray-900">总结</h4>
+              <p class="text-sm leading-7 text-gray-700">{{ summaryResult.summary }}</p>
+            </article>
+
+            <div v-if="summaryResult.key_points?.length" class="rounded-2xl border border-gray-100 bg-white p-4">
+              <h4 class="mb-3 text-sm font-semibold text-gray-900">关键要点</h4>
+              <ul class="space-y-2 text-sm leading-6 text-gray-700">
+                <li v-for="point in summaryResult.key_points" :key="point" class="flex gap-2">
+                  <span class="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-primary"></span>
+                  <span>{{ point }}</span>
+                </li>
+              </ul>
+            </div>
+
+            <div v-if="summaryResult.discussion_threads?.length" class="space-y-3">
+              <h4 class="text-sm font-semibold text-gray-900">讨论脉络</h4>
+              <article
+                v-for="thread in summaryResult.discussion_threads"
+                :key="thread.topic"
+                class="rounded-2xl border border-gray-100 bg-white p-4"
+              >
+                <h5 class="font-semibold text-gray-900">{{ thread.topic }}</h5>
+                <p class="mt-2 text-sm leading-6 text-gray-600">{{ thread.summary }}</p>
+              </article>
+            </div>
+
+            <div class="grid gap-4 md:grid-cols-2">
+              <div class="rounded-2xl bg-amber-50 p-4">
+                <h4 class="mb-3 text-sm font-semibold text-amber-900">仍在讨论</h4>
+                <ul v-if="summaryResult.open_questions?.length" class="space-y-2 text-sm leading-6 text-amber-800">
+                  <li v-for="question in summaryResult.open_questions" :key="question">- {{ question }}</li>
+                </ul>
+                <p v-else class="text-sm text-amber-800">暂无明确未解决问题。</p>
+              </div>
+              <div class="rounded-2xl bg-emerald-50 p-4">
+                <h4 class="mb-3 text-sm font-semibold text-emerald-900">后续行动</h4>
+                <ul v-if="summaryResult.action_items?.length" class="space-y-2 text-sm leading-6 text-emerald-800">
+                  <li v-for="item in summaryResult.action_items" :key="item">- {{ item }}</li>
+                </ul>
+                <p v-else class="text-sm text-emerald-800">暂无明确行动项。</p>
+              </div>
+            </div>
+
+            <div class="space-y-2">
+              <label class="text-sm font-semibold text-gray-900" for="post-summary-text">弹窗文本</label>
+              <textarea
+                id="post-summary-text"
+                class="h-36 w-full resize-none rounded-2xl border border-gray-100 bg-gray-50 p-3 text-sm leading-6 text-gray-700 outline-none focus:border-primary/40 focus:ring-2 focus:ring-primary/10"
+                readonly
+                :value="summaryText"
+                @focus="$event.target.select()"
+              ></textarea>
+            </div>
+          </div>
+        </div>
+
+        <footer class="flex justify-end border-t border-gray-100 px-6 py-4">
+          <button class="btn-primary px-4 py-2 text-sm" type="button" @click="closeSummaryDialog">完成</button>
+        </footer>
+      </section>
+    </div>
   </div>
 </template>
 
 <script setup>
 import { computed, reactive, ref, onMounted, nextTick, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
+import { Sparkles, X } from 'lucide-vue-next';
 import CommentNode from '../components/business/CommentNode.vue';
 import { api } from '../services/api';
+import { aiApi } from '../services/aiApi';
 import { authState } from '../stores/auth';
 
 const route = useRoute();
@@ -107,12 +228,38 @@ const editingPost = ref(false);
 const error = ref('');
 const actionMessage = ref('');
 const commentContent = ref('');
+const summaryDialogOpen = ref(false);
+const summaryLoading = ref(false);
+const summaryError = ref('');
+const summaryResult = ref(null);
 const postEdit = reactive({
   title: '',
   content: ''
 });
 
 const currentUserId = computed(() => authState.user?.id || '');
+const summaryEmpty = computed(() => Boolean(summaryResult.value && !summaryResult.value.comment_count));
+
+const summaryText = computed(() => {
+  if (!summaryResult.value) {
+    return '';
+  }
+  const result = summaryResult.value;
+  const parts = [
+    `《${result.post_title || post.value?.title || '帖子'}》讨论总结`,
+    result.summary || '暂无总结。'
+  ];
+  if (result.key_points?.length) {
+    parts.push('关键要点：', ...result.key_points.map((item) => `- ${item}`));
+  }
+  if (result.open_questions?.length) {
+    parts.push('仍在讨论：', ...result.open_questions.map((item) => `- ${item}`));
+  }
+  if (result.action_items?.length) {
+    parts.push('后续行动：', ...result.action_items.map((item) => `- ${item}`));
+  }
+  return parts.join('\n');
+});
 
 const formatDate = (value) => {
   if (!value) {
@@ -196,6 +343,31 @@ const deletePost = async () => {
     await router.replace(tribeId ? `/tribes/${tribeId}` : '/tribes');
   } catch (err) {
     error.value = err.message || '删除帖子失败';
+  }
+};
+
+const closeSummaryDialog = () => {
+  if (summaryLoading.value) {
+    return;
+  }
+  summaryDialogOpen.value = false;
+};
+
+const openPostSummary = async () => {
+  if (!post.value?.id) {
+    return;
+  }
+  summaryDialogOpen.value = true;
+  summaryLoading.value = true;
+  summaryError.value = '';
+  summaryResult.value = null;
+
+  try {
+    summaryResult.value = await aiApi.generatePostSummary(post.value.id);
+  } catch (err) {
+    summaryError.value = err.message || 'AI 总结生成失败，请稍后重试';
+  } finally {
+    summaryLoading.value = false;
   }
 };
 

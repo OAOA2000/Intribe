@@ -75,6 +75,7 @@
 - 部落帖子、楼中楼评论与评论消息提醒 API
 - AI 活动文案接口
 - AI 部落消息摘要 / 今日部落动态接口
+- AI 帖子内容总结接口与帖子详情页弹窗入口
 
 当前系统属于：
 
@@ -98,6 +99,7 @@
 - 顶部和发现页搜索部落 / 活动
 - AI 活动文案接口
 - AI 部落消息摘要：在消息中心按部落生成“今日部落动态”
+- AI 帖子内容总结：在帖子详情页按当前帖子正文和评论区生成一次性中文讨论总结
 
 仍需继续完善：
 
@@ -386,7 +388,9 @@ SQL 文件用于 Supabase 初始化：
 - 全选与批量删除
 - “前往”按钮跳转到对应帖子评论位置
 - 对单个部落分组生成“AI 总结今日动态”
-- 以弹窗展示一次性 summary、highlights、todos，并支持一键复制
+- 以弹窗展示一次性 summary、highlights、todos
+- 弹窗内提供“复制文本”只读文本框和“一键复制”按钮
+- 如果浏览器限制自动复制，会自动选中文本框内容，用户可手动按 `Ctrl/Cmd + C`
 
 未来扩展：
 
@@ -891,7 +895,64 @@ AI 是：
 - `FrontEnd/src/services/aiApi.js` 暴露 `generateTribeDigest(params)`
 - `MessagesView.vue` 的部落消息分组提供“总结今日动态”按钮
 - 弹窗展示 loading、error、empty、summary、highlights、todos
-- 提供“一键复制”，结果为一次性内容，不保存到数据库
+- 弹窗提供“复制文本”只读文本框和“一键复制”按钮
+- 复制优先使用选中文本框内容的方式；若浏览器拒绝自动复制，则保留选中状态并提示用户按 `Ctrl/Cmd + C`
+- 结果为一次性内容，不保存到数据库
+
+---
+
+### AI 帖子内容总结
+
+当前已实现：
+
+- `POST /api/ai/post-summary`
+- 请求体：`{ "post_id": "uuid" }`
+- 当前用户必须登录
+- 当前用户必须是帖子所属部落成员或部落 owner；无权限返回 403
+- 已软删除或当前用户不可见的帖子不会被总结
+- 后端优先使用当前用户 Supabase JWT 读取 `tribe_posts`、`tribe_comments`、`tribes`、`tribe_members`、`profiles`，继续让 RLS 生效
+- 后端会读取帖子标题、正文、作者、发布时间、所属部落，以及该帖下未删除评论
+- 支持楼中楼评论；传给 LLM 前会压缩为按时间排列、带回复层级的可读上下文
+- 单条过长评论和总体评论上下文都会截断，避免 token 过长
+- 无评论帖子也可基于正文生成总结，并在前端展示空评论提示
+- LLM 调用失败时返回统一可读错误，不影响帖子详情页和评论功能正常展示
+- 结果为一次性内容，不写入 Supabase 数据库
+
+返回结构：
+
+```json
+{
+  "post_title": "string",
+  "summary": "string",
+  "key_points": ["string"],
+  "discussion_threads": [
+    {
+      "topic": "string",
+      "summary": "string"
+    }
+  ],
+  "open_questions": ["string"],
+  "action_items": ["string"],
+  "comment_count": 0,
+  "generated_at": "ISO datetime"
+}
+```
+
+Prompt 约束：
+
+- 只基于帖子正文和评论内容总结
+- 不编造不存在的观点、人物、结论或行动项
+- 区分“已达成共识”和“仍在讨论的问题”
+- 对争议内容保持中立
+- 输出语言为中文
+- 风格简洁，适合校园社区阅读
+
+前端入口：
+
+- `FrontEnd/src/services/aiApi.js` 暴露 `generatePostSummary(postId)`
+- `PostDetailView.vue` 在帖子正文下方提供“AI 总结讨论”按钮
+- 弹窗展示 loading、error、无评论提示、summary 卡片、key_points 列表、discussion_threads、open_questions、action_items 和只读弹窗文本
+- UI 保持 Tailwind 风格，并使用响应式布局适配移动端
 
 ---
 
