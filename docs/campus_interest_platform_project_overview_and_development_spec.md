@@ -199,6 +199,10 @@ EdgeOne 仅作为：
 
 当前代码中没有使用 EdgeOne SDK。
 
+## 4.3 虚拟环境
+
+使用conda作为虚拟环境，env name为vibecoding
+
 ---
 
 # 5. 项目目录结构
