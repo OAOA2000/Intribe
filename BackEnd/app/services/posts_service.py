@@ -270,7 +270,7 @@ def delete_post(post_id):
     if not _can_manage_post(post):
         raise APIError("FORBIDDEN", "You do not have permission to delete this post", 403)
 
-    db().update("tribe_posts", {"deleted_at": _now_iso()}, {"id": f"eq.{post_id}"}, returning="minimal")
+    _service_db().update("tribe_posts", {"deleted_at": _now_iso()}, {"id": f"eq.{post_id}"}, returning="minimal")
     return {"deleted": True, "post_id": post_id}
 
 
@@ -326,5 +326,5 @@ def delete_comment(comment_id):
     if not _can_manage_comment(comment):
         raise APIError("FORBIDDEN", "You do not have permission to delete this comment", 403)
 
-    rows = db().update("tribe_comments", {"deleted_at": _now_iso()}, {"id": f"eq.{comment_id}"})
-    return {"deleted": bool(rows), "comment_id": comment_id}
+    _service_db().update("tribe_comments", {"deleted_at": _now_iso()}, {"id": f"eq.{comment_id}"}, returning="minimal")
+    return {"deleted": True, "comment_id": comment_id}
