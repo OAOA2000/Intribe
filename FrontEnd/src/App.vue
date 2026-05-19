@@ -23,7 +23,11 @@
             </form>
           </div>
           <div class="relative">
-            <button class="p-2 rounded-full hover:bg-gray-100 transition-colors">
+            <button
+              type="button"
+              class="p-2 rounded-full hover:bg-gray-100 transition-colors"
+              @click="router.push('/messages')"
+            >
               <Bell class="w-6 h-6" />
               <span class="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full"></span>
             </button>

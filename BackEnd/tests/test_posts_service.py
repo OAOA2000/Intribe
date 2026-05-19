@@ -1,7 +1,7 @@
 from app.services.posts_service import build_comment_tree
 
 
-def test_build_comment_tree_keeps_nested_replies_and_deleted_placeholder():
+def test_build_comment_tree_promotes_replies_when_parent_is_missing():
     comments = [
         {
             "id": "root",
@@ -11,15 +11,8 @@ def test_build_comment_tree_keeps_nested_replies_and_deleted_placeholder():
             "deleted_at": None,
         },
         {
-            "id": "child",
-            "parent_id": "root",
-            "author_id": "u2",
-            "content": "child comment",
-            "deleted_at": "2026-05-19T00:00:00+00:00",
-        },
-        {
             "id": "grandchild",
-            "parent_id": "child",
+            "parent_id": "deleted-parent",
             "author_id": "u3",
             "content": "grandchild comment",
             "deleted_at": None,
@@ -28,8 +21,6 @@ def test_build_comment_tree_keeps_nested_replies_and_deleted_placeholder():
 
     tree = build_comment_tree(comments)
 
-    assert len(tree) == 1
+    assert len(tree) == 2
     assert tree[0]["id"] == "root"
-    assert tree[0]["children"][0]["id"] == "child"
-    assert tree[0]["children"][0]["content"] == "该评论已删除"
-    assert tree[0]["children"][0]["children"][0]["id"] == "grandchild"
+    assert tree[1]["id"] == "grandchild"

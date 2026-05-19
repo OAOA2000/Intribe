@@ -1,5 +1,5 @@
 <template>
-  <div class="border-l-2 border-gray-100 pl-3" :style="{ marginLeft: `${indent}px` }">
+  <div :id="`comment-${comment.id}`" class="border-l-2 border-gray-100 pl-3" :style="{ marginLeft: `${indent}px` }">
     <div class="rounded-xl bg-gray-50 p-3">
       <div class="flex items-start justify-between gap-3">
         <div>

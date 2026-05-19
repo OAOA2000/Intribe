@@ -96,6 +96,10 @@ create table if not exists public.tribe_comments (
   deleted_at timestamptz
 );
 
+alter table public.messages
+  add column if not exists post_id uuid references public.tribe_posts(id) on delete set null,
+  add column if not exists comment_id uuid references public.tribe_comments(id) on delete set null;
+
 drop trigger if exists set_profiles_updated_at on public.profiles;
 create trigger set_profiles_updated_at
 before update on public.profiles
@@ -126,6 +130,9 @@ create index if not exists idx_tribe_members_tribe_id on public.tribe_members(tr
 create index if not exists idx_events_tribe_id on public.events(tribe_id);
 create index if not exists idx_event_registrations_user_id on public.event_registrations(user_id);
 create index if not exists idx_messages_user_id on public.messages(user_id);
+create index if not exists idx_messages_tribe_id on public.messages(tribe_id);
+create index if not exists idx_messages_post_id on public.messages(post_id);
+create index if not exists idx_messages_comment_id on public.messages(comment_id);
 create index if not exists idx_tribe_posts_tribe_id on public.tribe_posts(tribe_id);
 create index if not exists idx_tribe_posts_author_id on public.tribe_posts(author_id);
 create index if not exists idx_tribe_comments_post_id on public.tribe_comments(post_id);

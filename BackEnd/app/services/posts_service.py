@@ -1,5 +1,7 @@
 from datetime import datetime, timezone
 
+from flask import current_app
+
 from .common import current_user_id, db, is_tribe_manager, single_or_404
 from ..supabase_client import get_supabase_client
 from ..utils.errors import APIError
@@ -60,6 +62,46 @@ def _attach_authors(rows, author_key="author_id"):
     return rows
 
 
+def _create_message(payload):
+    try:
+        _service_db().insert("messages", payload)
+    except Exception as exc:  # Notifications should not block the comment itself.
+        current_app.logger.warning("Failed to create comment notification: %s", exc)
+
+
+def _notify_comment_recipients(post, comment, parent_comment=None):
+    actor_id = comment.get("author_id")
+    actor_name = comment.get("author", {}).get("display_name") or "有同学"
+    recipients = {}
+
+    post_author_id = post.get("author_id")
+    if post_author_id and post_author_id != actor_id:
+        recipients[post_author_id] = {
+            "title": "帖子收到新评论",
+            "content": f"{actor_name} 评论了你的帖子《{post.get('title') or '部落帖子'}》",
+        }
+
+    parent_author_id = parent_comment.get("author_id") if parent_comment else None
+    if parent_author_id and parent_author_id != actor_id and parent_author_id not in recipients:
+        recipients[parent_author_id] = {
+            "title": "评论收到新回复",
+            "content": f"{actor_name} 回复了你在《{post.get('title') or '部落帖子'}》下的评论",
+        }
+
+    for user_id, message in recipients.items():
+        _create_message(
+            {
+                "user_id": user_id,
+                "tribe_id": post.get("tribe_id"),
+                "post_id": post.get("id"),
+                "comment_id": comment.get("id"),
+                "title": message["title"],
+                "content": message["content"],
+                "type": "tribe",
+            }
+        )
+
+
 def _load_post(post_id, include_deleted=False):
     params = {"id": f"eq.{post_id}", "select": "*,tribes(id,name,category,icon)", "limit": "1"}
     if not include_deleted:
@@ -89,8 +131,6 @@ def _can_manage_comment(comment):
 def _serialize_comment(comment):
     item = dict(comment)
     item["children"] = []
-    if item.get("deleted_at"):
-        item["content"] = "该评论已删除"
     return item
 
 
@@ -172,6 +212,7 @@ def get_post_detail(post_id):
         "tribe_comments",
         {
             "post_id": f"eq.{post_id}",
+            "deleted_at": "is.null",
             "select": "*",
             "order": "created_at.asc",
         },
@@ -227,12 +268,13 @@ def create_comment(post_id, data):
     payload["author_id"] = current_user_id()
 
     parent_id = payload.get("parent_id")
+    parent_comment = None
     if parent_id:
         parent_rows = db().select(
             "tribe_comments",
-            {"id": f"eq.{parent_id}", "post_id": f"eq.{post_id}", "select": "id", "limit": "1"},
+            {"id": f"eq.{parent_id}", "post_id": f"eq.{post_id}", "select": "id,author_id", "limit": "1"},
         )
-        single_or_404(parent_rows, "Parent comment not found")
+        parent_comment = single_or_404(parent_rows, "Parent comment not found")
     else:
         payload.pop("parent_id", None)
 
@@ -240,6 +282,7 @@ def create_comment(post_id, data):
     comment = single_or_404(rows, "Failed to create comment")
     comment["tribe_id"] = post.get("tribe_id")
     _attach_authors([comment])
+    _notify_comment_recipients(post, comment, parent_comment)
     return comment
 
 

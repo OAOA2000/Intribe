@@ -92,7 +92,7 @@
 </template>
 
 <script setup>
-import { computed, reactive, ref, onMounted } from 'vue';
+import { computed, reactive, ref, onMounted, nextTick, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import CommentNode from '../components/business/CommentNode.vue';
 import { api } from '../services/api';
@@ -132,11 +132,28 @@ const loadPost = async () => {
 
   try {
     post.value = await api.get(`/posts/${route.params.id}`);
+    await scrollToCommentHash();
   } catch (err) {
     error.value = err.message || '加载帖子失败';
   } finally {
     loading.value = false;
   }
+};
+
+const scrollToCommentHash = async () => {
+  if (!route.hash) {
+    return;
+  }
+  await nextTick();
+  const target = document.querySelector(route.hash);
+  if (!target) {
+    return;
+  }
+  target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  target.classList.add('ring-2', 'ring-primary', 'ring-offset-2', 'rounded-xl');
+  window.setTimeout(() => {
+    target.classList.remove('ring-2', 'ring-primary', 'ring-offset-2', 'rounded-xl');
+  }, 1800);
 };
 
 const goBack = () => {
@@ -234,4 +251,5 @@ const deleteComment = async (comment) => {
 };
 
 onMounted(loadPost);
+watch(() => route.hash, scrollToCommentHash);
 </script>
