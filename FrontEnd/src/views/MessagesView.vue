@@ -64,9 +64,21 @@
               <p class="text-xs text-gray-500">{{ group.items.length }} 条消息</p>
             </div>
           </div>
-          <span v-if="group.unreadCount" class="rounded-full bg-red-50 px-3 py-1 text-xs text-red-600">
-            {{ group.unreadCount }} 条未读
-          </span>
+          <div class="flex flex-wrap items-center justify-end gap-2">
+            <button
+              v-if="group.key !== 'system' && !selectionMode"
+              class="inline-flex items-center gap-1.5 rounded-full border border-primary/20 bg-primary/10 px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/15 disabled:cursor-not-allowed disabled:opacity-60"
+              type="button"
+              :disabled="digestLoading && activeDigestTribeId === group.key"
+              @click="openTribeDigest(group)"
+            >
+              <Sparkles class="h-3.5 w-3.5" />
+              {{ digestLoading && activeDigestTribeId === group.key ? '总结中...' : '总结今日动态' }}
+            </button>
+            <span v-if="group.unreadCount" class="rounded-full bg-red-50 px-3 py-1 text-xs text-red-600">
+              {{ group.unreadCount }} 条未读
+            </span>
+          </div>
         </div>
 
         <div class="space-y-3">
@@ -128,14 +140,92 @@
       </section>
     </div>
     <p v-if="!loading && messages.length === 0" class="text-sm text-gray-500">暂无消息</p>
+
+    <div
+      v-if="digestDialogOpen"
+      class="fixed inset-0 z-50 flex items-center justify-center bg-gray-950/40 px-4 py-6 backdrop-blur-sm"
+      @click.self="closeDigestDialog"
+    >
+      <section class="max-h-[86vh] w-full max-w-2xl overflow-hidden rounded-3xl border border-white/70 bg-white/90 shadow-2xl backdrop-blur">
+        <header class="flex items-start justify-between gap-4 border-b border-gray-100 px-6 py-5">
+          <div>
+            <p class="text-xs font-medium uppercase tracking-wide text-primary">今日部落动态</p>
+            <h3 class="mt-1 text-2xl font-bold text-gray-900">{{ digestTribeName || '兴趣部落' }}</h3>
+          </div>
+          <button
+            class="rounded-full bg-gray-100 p-2 text-gray-500 hover:bg-gray-200"
+            type="button"
+            aria-label="关闭"
+            @click="closeDigestDialog"
+          >
+            <X class="h-5 w-5" />
+          </button>
+        </header>
+
+        <div class="max-h-[62vh] overflow-y-auto px-6 py-5">
+          <div v-if="digestLoading" class="rounded-2xl bg-primary/5 p-5 text-sm text-primary">
+            AI 正在整理今天的部落动态...
+          </div>
+
+          <div v-else-if="digestError" class="rounded-2xl bg-red-50 p-5 text-sm text-red-600">
+            {{ digestError }}
+          </div>
+
+          <div v-else-if="digestEmpty" class="rounded-2xl bg-gray-50 p-5 text-sm text-gray-500">
+            暂无明显动态，今天这个部落还比较安静。
+          </div>
+
+          <div v-else class="space-y-5">
+            <p class="rounded-2xl bg-primary/5 p-4 text-sm leading-7 text-gray-700">{{ digestResult.summary }}</p>
+
+            <div v-if="digestResult.highlights?.length" class="space-y-3">
+              <h4 class="text-sm font-semibold text-gray-900">重点动态</h4>
+              <article
+                v-for="(item, index) in digestResult.highlights"
+                :key="`${item.type}-${item.target_id || index}`"
+                class="rounded-2xl border border-gray-100 bg-white/80 p-4"
+              >
+                <div class="mb-2 flex items-center gap-2">
+                  <span class="rounded-full bg-gray-100 px-2.5 py-1 text-xs text-gray-600">{{ highlightTypeLabel(item.type) }}</span>
+                  <h5 class="font-semibold text-gray-900">{{ item.title }}</h5>
+                </div>
+                <p class="text-sm leading-6 text-gray-600">{{ item.description }}</p>
+              </article>
+            </div>
+
+            <div v-if="digestResult.todos?.length" class="space-y-2 rounded-2xl bg-amber-50 p-4">
+              <h4 class="text-sm font-semibold text-amber-900">待关注</h4>
+              <ul class="space-y-2 text-sm text-amber-800">
+                <li v-for="todo in digestResult.todos" :key="todo">- {{ todo }}</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+
+        <footer class="flex flex-col gap-2 border-t border-gray-100 px-6 py-4 sm:flex-row sm:justify-end">
+          <button
+            class="inline-flex items-center justify-center gap-2 rounded-xl bg-gray-100 px-4 py-2 text-sm text-gray-700 hover:bg-gray-200 disabled:opacity-60"
+            type="button"
+            :disabled="digestLoading || digestError"
+            @click="copyDigest"
+          >
+            <Check v-if="digestCopied" class="h-4 w-4" />
+            <Copy v-else class="h-4 w-4" />
+            {{ digestCopied ? '已复制' : '一键复制' }}
+          </button>
+          <button class="btn-primary px-4 py-2 text-sm" type="button" @click="closeDigestDialog">完成</button>
+        </footer>
+      </section>
+    </div>
   </div>
 </template>
 
 <script setup>
 import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
-import { Code, Activity, Guitar, Bell, Users } from 'lucide-vue-next';
+import { Activity, Bell, Check, Code, Copy, Guitar, Sparkles, Users, X } from 'lucide-vue-next';
 import { api } from '../services/api';
+import { aiApi } from '../services/aiApi';
 
 const router = useRouter();
 
@@ -160,6 +250,13 @@ const loading = ref(false);
 const error = ref('');
 const selectionMode = ref(false);
 const selectedMessageIds = ref(new Set());
+const digestDialogOpen = ref(false);
+const digestLoading = ref(false);
+const digestError = ref('');
+const digestResult = ref(null);
+const digestTribeName = ref('');
+const activeDigestTribeId = ref('');
+const digestCopied = ref(false);
 
 const unreadMessages = computed(() => messages.value.filter((message) => message.unread));
 const allSelected = computed(() => messages.value.length > 0 && selectedMessageIds.value.size === messages.value.length);
@@ -183,6 +280,13 @@ const groupedMessages = computed(() => {
     }
   });
   return Array.from(groups.values());
+});
+
+const digestEmpty = computed(() => {
+  if (!digestResult.value) {
+    return false;
+  }
+  return !digestResult.value.highlights?.length && !digestResult.value.todos?.length;
 });
 
 const formatTime = (value) => {
@@ -323,6 +427,77 @@ const goToMessage = async (message) => {
   }
   const hash = message.comment_id ? `#comment-${message.comment_id}` : '';
   await router.push(`/posts/${message.post_id}${hash}`);
+};
+
+const closeDigestDialog = () => {
+  if (digestLoading.value) {
+    return;
+  }
+  digestDialogOpen.value = false;
+};
+
+const openTribeDigest = async (group) => {
+  digestDialogOpen.value = true;
+  digestLoading.value = true;
+  digestError.value = '';
+  digestResult.value = null;
+  digestCopied.value = false;
+  digestTribeName.value = group.name;
+  activeDigestTribeId.value = group.key;
+
+  try {
+    digestResult.value = await aiApi.generateTribeDigest({
+      tribe_id: group.key,
+      time_range: 'today'
+    });
+  } catch (err) {
+    digestError.value = err.message || 'AI 总结生成失败，请稍后重试';
+  } finally {
+    digestLoading.value = false;
+    activeDigestTribeId.value = '';
+  }
+};
+
+const highlightTypeLabel = (type) => {
+  const labels = {
+    post: '帖子',
+    comment: '评论',
+    event: '活动',
+    todo: '待办'
+  };
+  return labels[type] || '动态';
+};
+
+const digestText = computed(() => {
+  if (!digestResult.value) {
+    return '';
+  }
+  const parts = [`${digestTribeName.value} 今日部落动态`, digestResult.value.summary || '暂无明显动态。'];
+  if (digestResult.value.highlights?.length) {
+    parts.push(
+      '重点动态：',
+      ...digestResult.value.highlights.map((item) => `- ${item.title}：${item.description}`)
+    );
+  }
+  if (digestResult.value.todos?.length) {
+    parts.push('待关注：', ...digestResult.value.todos.map((todo) => `- ${todo}`));
+  }
+  return parts.join('\n');
+});
+
+const copyDigest = async () => {
+  if (!digestText.value) {
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(digestText.value);
+    digestCopied.value = true;
+    window.setTimeout(() => {
+      digestCopied.value = false;
+    }, 1800);
+  } catch (err) {
+    digestError.value = '复制失败，请手动选择文本保存';
+  }
 };
 
 onMounted(loadMessages);

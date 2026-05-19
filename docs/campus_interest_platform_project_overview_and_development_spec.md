@@ -73,7 +73,8 @@
 - 前端 API service 封装
 - 用户资料、部落、活动、报名、消息、管理中台等核心 API
 - 部落帖子、楼中楼评论与评论消息提醒 API
-- AI 活动文案占位接口
+- AI 活动文案接口
+- AI 部落消息摘要 / 今日部落动态接口
 
 当前系统属于：
 
@@ -95,7 +96,8 @@
 - 消息列表、单条已读、一键已读、单条删除、批量选择删除
 - 管理中台统计数据与可管理活动列表
 - 顶部和发现页搜索部落 / 活动
-- AI 活动文案接口占位返回
+- AI 活动文案接口
+- AI 部落消息摘要：在消息中心按部落生成“今日部落动态”
 
 仍需继续完善：
 
@@ -383,6 +385,8 @@ SQL 文件用于 Supabase 初始化：
 - 选择消息模式
 - 全选与批量删除
 - “前往”按钮跳转到对应帖子评论位置
+- 对单个部落分组生成“AI 总结今日动态”
+- 以弹窗展示一次性 summary、highlights、todos，并支持一键复制
 
 未来扩展：
 
@@ -390,7 +394,7 @@ SQL 文件用于 Supabase 初始化：
 - 系统消息
 - 活动提醒
 - 私聊 / 群聊
-- AI 总结通知
+- 将 AI 总结扩展到更多消息来源
 
 ---
 
@@ -643,6 +647,7 @@ created_at
 - 消息中心按部落聚合展示
 - 从消息跳转到对应帖子 / 评论位置
 - 已读、全部已读、单条删除、批量删除
+- 基于某个部落分组生成“今日部落动态”一次性 AI 摘要，不写入数据库
 
 ---
 
@@ -850,6 +855,43 @@ AI 是：
 - 群聊讨论
 - 活动公告
 - 协作内容
+
+当前已实现：
+
+- `POST /api/ai/tribe-digest`
+- 支持 `{ "tribe_id": "uuid", "time_range": "today" }`
+- 支持 `{ "tribe_id": "uuid", "start_time": "ISO datetime", "end_time": "ISO datetime" }`
+- 当前用户必须登录，且必须是该部落成员；无权限返回 403
+- 后端使用当前用户 Supabase JWT 查询 `messages`、`tribe_posts`、`tribe_comments`、`events`，继续让 RLS 生效
+- 调用 LLM 前会把原始数据压缩为摘要上下文，避免把数据库原始字段整体传给模型
+- 空上下文直接返回“暂无明显动态”，不写入 Supabase
+- LLM 调用失败时返回统一可读错误
+
+返回结构：
+
+```json
+{
+  "summary": "string",
+  "highlights": [
+    {
+      "type": "post|comment|event|todo",
+      "title": "string",
+      "description": "string",
+      "target_type": "post|event|message|null",
+      "target_id": "uuid|null"
+    }
+  ],
+  "todos": ["string"],
+  "generated_at": "ISO datetime"
+}
+```
+
+前端入口：
+
+- `FrontEnd/src/services/aiApi.js` 暴露 `generateTribeDigest(params)`
+- `MessagesView.vue` 的部落消息分组提供“总结今日动态”按钮
+- 弹窗展示 loading、error、empty、summary、highlights、todos
+- 提供“一键复制”，结果为一次性内容，不保存到数据库
 
 ---
 
