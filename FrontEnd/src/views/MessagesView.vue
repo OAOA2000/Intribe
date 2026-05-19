@@ -175,7 +175,7 @@
             暂无明显动态，今天这个部落还比较安静。
           </div>
 
-          <div v-else class="space-y-5">
+          <div v-else class="space-y-5" data-digest-content>
             <p class="rounded-2xl bg-primary/5 p-4 text-sm leading-7 text-gray-700">{{ digestResult.summary }}</p>
 
             <div v-if="digestResult.highlights?.length" class="space-y-3">
@@ -199,15 +199,34 @@
                 <li v-for="todo in digestResult.todos" :key="todo">- {{ todo }}</li>
               </ul>
             </div>
+
+            <div class="space-y-2">
+              <label class="text-sm font-semibold text-gray-900" for="digest-copy-text">复制文本</label>
+              <textarea
+                id="digest-copy-text"
+                ref="digestCopyTextArea"
+                class="h-28 w-full resize-none rounded-2xl border border-gray-100 bg-white/80 p-3 text-sm leading-6 text-gray-700 outline-none focus:border-primary/40 focus:ring-2 focus:ring-primary/10"
+                readonly
+                :value="digestText"
+                @focus="$event.target.select()"
+              ></textarea>
+            </div>
           </div>
         </div>
 
         <footer class="flex flex-col gap-2 border-t border-gray-100 px-6 py-4 sm:flex-row sm:justify-end">
+          <p
+            v-if="digestCopyMessage"
+            class="flex-1 rounded-xl px-3 py-2 text-sm"
+            :class="digestCopied ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-600'"
+          >
+            {{ digestCopyMessage }}
+          </p>
           <button
             class="inline-flex items-center justify-center gap-2 rounded-xl bg-gray-100 px-4 py-2 text-sm text-gray-700 hover:bg-gray-200 disabled:opacity-60"
             type="button"
-            :disabled="digestLoading || digestError"
-            @click="copyDigest"
+            :disabled="digestLoading || !digestText"
+            @click.stop.prevent="copyDigest"
           >
             <Check v-if="digestCopied" class="h-4 w-4" />
             <Copy v-else class="h-4 w-4" />
@@ -257,6 +276,8 @@ const digestResult = ref(null);
 const digestTribeName = ref('');
 const activeDigestTribeId = ref('');
 const digestCopied = ref(false);
+const digestCopyMessage = ref('');
+const digestCopyTextArea = ref(null);
 
 const unreadMessages = computed(() => messages.value.filter((message) => message.unread));
 const allSelected = computed(() => messages.value.length > 0 && selectedMessageIds.value.size === messages.value.length);
@@ -442,6 +463,7 @@ const openTribeDigest = async (group) => {
   digestError.value = '';
   digestResult.value = null;
   digestCopied.value = false;
+  digestCopyMessage.value = '';
   digestTribeName.value = group.name;
   activeDigestTribeId.value = group.key;
 
@@ -485,45 +507,65 @@ const digestText = computed(() => {
   return parts.join('\n');
 });
 
-const writeClipboardText = async (text) => {
-  if (navigator.clipboard?.writeText && window.isSecureContext) {
-    await navigator.clipboard.writeText(text);
-    return;
+const selectCopyTextArea = () => {
+  const textArea = digestCopyTextArea.value;
+  if (!textArea) {
+    return false;
   }
-
-  const textArea = document.createElement('textarea');
-  textArea.value = text;
-  textArea.setAttribute('readonly', '');
-  textArea.style.position = 'fixed';
-  textArea.style.top = '-9999px';
-  textArea.style.left = '-9999px';
-  document.body.appendChild(textArea);
-  textArea.focus();
+  textArea.focus({ preventScroll: true });
   textArea.select();
+  textArea.setSelectionRange(0, textArea.value.length);
+  return true;
+};
 
+const copySelectedDigestText = () => {
+  if (!selectCopyTextArea()) {
+    return false;
+  }
   try {
-    const copied = document.execCommand('copy');
-    if (!copied) {
-      throw new Error('copy command failed');
-    }
-  } finally {
-    document.body.removeChild(textArea);
+    return document.execCommand('copy');
+  } catch (err) {
+    return false;
   }
 };
 
+const writeClipboardText = async (text) => {
+  if (copySelectedDigestText()) {
+    return true;
+  }
+
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return true;
+  }
+
+  throw new Error('copy command failed');
+};
+
+const showCopyMessage = (message, copied) => {
+  digestCopied.value = copied;
+  digestCopyMessage.value = message;
+  window.setTimeout(() => {
+    if (digestCopyMessage.value === message) {
+      digestCopied.value = false;
+      digestCopyMessage.value = '';
+    }
+  }, copied ? 1800 : 2600);
+};
+
 const copyDigest = async () => {
-  if (!digestText.value) {
+  const text = digestText.value;
+  if (!text) {
+    showCopyMessage('暂无可复制内容', false);
     return;
   }
+
   try {
-    await writeClipboardText(digestText.value);
-    digestCopied.value = true;
-    window.setTimeout(() => {
-      digestCopied.value = false;
-    }, 1800);
+    await writeClipboardText(text);
+    showCopyMessage('已复制到剪贴板', true);
   } catch (err) {
-    digestCopied.value = false;
-    window.alert('复制失败，请手动选择文本保存');
+    selectCopyTextArea();
+    showCopyMessage('自动复制失败，已选中下方文本，可按 Ctrl/Cmd + C 复制', false);
   }
 };
 
