@@ -65,8 +65,25 @@ def _attach_authors(rows, author_key="author_id"):
 def _create_message(payload):
     try:
         _service_db().insert("messages", payload)
+        return True
+    except APIError as exc:
+        if "post_id" in payload or "comment_id" in payload:
+            legacy_payload = {key: value for key, value in payload.items() if key not in ("post_id", "comment_id")}
+            try:
+                _service_db().insert("messages", legacy_payload)
+                current_app.logger.warning(
+                    "Created notification without post/comment links. Run latest schema SQL to enable message jumps: %s",
+                    exc.message,
+                )
+                return False
+            except Exception as fallback_exc:
+                current_app.logger.warning("Failed to create fallback comment notification: %s", fallback_exc)
+                return False
+        current_app.logger.warning("Failed to create comment notification: %s", exc)
+        return False
     except Exception as exc:  # Notifications should not block the comment itself.
         current_app.logger.warning("Failed to create comment notification: %s", exc)
+        return False
 
 
 def _notify_comment_recipients(post, comment, parent_comment=None):

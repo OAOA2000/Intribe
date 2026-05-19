@@ -141,6 +141,7 @@ const loadMessages = async () => {
   try {
     const rows = await api.get('/messages');
     messages.value = rows.map(normalizeMessage);
+    window.dispatchEvent(new CustomEvent('messages-updated'));
   } catch (err) {
     error.value = err.message || '加载消息失败';
   } finally {
@@ -162,6 +163,7 @@ const markAsRead = async (message) => {
         is_read: true,
         unread: false
       };
+      window.dispatchEvent(new CustomEvent('messages-updated'));
     }
   } catch (err) {
     error.value = err.message || '标记已读失败';

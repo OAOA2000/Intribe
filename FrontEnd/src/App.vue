@@ -29,7 +29,13 @@
               @click="router.push('/messages')"
             >
               <Bell class="w-6 h-6" />
-              <span class="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full"></span>
+              <span
+                v-if="unreadCount > 0"
+                class="absolute top-1 right-1 min-h-2 min-w-2 rounded-full bg-red-500"
+                :class="unreadCount > 9 ? 'px-1 text-[10px] leading-4 text-white' : 'h-2 w-2'"
+              >
+                {{ unreadCount > 9 ? '9+' : '' }}
+              </span>
             </button>
           </div>
           <div class="hidden md:flex items-center gap-2 text-sm text-gray-600">
@@ -70,8 +76,9 @@
             </router-link>
           </li>
           <li>
-            <router-link to="/messages" class="nav-item" active-class="active">
+            <router-link to="/messages" class="nav-item relative" active-class="active">
               <MessageCircle class="w-6 h-6 mb-1" />
+              <span v-if="unreadCount > 0" class="absolute right-4 top-1 h-2 w-2 rounded-full bg-red-500"></span>
               <span class="text-sm">消息</span>
             </router-link>
           </li>
@@ -101,8 +108,9 @@
           <Users class="w-6 h-6" />
           <span class="text-xs mt-1">部落</span>
         </router-link>
-        <router-link to="/messages" class="nav-item" active-class="active">
+        <router-link to="/messages" class="nav-item relative" active-class="active">
           <MessageCircle class="w-6 h-6" />
+          <span v-if="unreadCount > 0" class="absolute right-4 top-1 h-2 w-2 rounded-full bg-red-500"></span>
           <span class="text-xs mt-1">消息</span>
         </router-link>
         <router-link to="/profile" class="nav-item" active-class="active">
@@ -115,15 +123,17 @@
 </template>
 
 <script setup>
-import { computed, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { Bell, User, Compass, Users, MessageCircle, BarChart2 } from 'lucide-vue-next';
 import { authState, signOutUser } from './stores/auth';
+import { api } from './services/api';
 
 const route = useRoute();
 const router = useRouter();
 const isSigningOut = ref(false);
 const searchKeyword = ref('');
+const unreadCount = ref(0);
 
 const hideShell = computed(() => Boolean(route.meta.hideShell));
 const userLabel = computed(() => authState.user?.email || '未登录');
@@ -135,6 +145,40 @@ watch(
   },
   { immediate: true }
 );
+
+watch(
+  () => [authState.user?.id, route.fullPath],
+  () => {
+    loadUnreadCount();
+  },
+  { immediate: true }
+);
+
+async function loadUnreadCount() {
+  if (!authState.user || hideShell.value) {
+    unreadCount.value = 0;
+    return;
+  }
+
+  try {
+    const data = await api.get('/messages/unread-count');
+    unreadCount.value = data?.count || 0;
+  } catch (_err) {
+    unreadCount.value = 0;
+  }
+}
+
+const handleMessagesUpdated = () => {
+  loadUnreadCount();
+};
+
+onMounted(() => {
+  window.addEventListener('messages-updated', handleMessagesUpdated);
+});
+
+onBeforeUnmount(() => {
+  window.removeEventListener('messages-updated', handleMessagesUpdated);
+});
 
 const submitSearch = async () => {
   const keyword = searchKeyword.value.trim();

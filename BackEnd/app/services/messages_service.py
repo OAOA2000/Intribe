@@ -14,6 +14,19 @@ def list_messages():
     )
 
 
+def get_unread_count():
+    user_id = current_user_id()
+    rows = db().select(
+        "messages",
+        {
+            "user_id": f"eq.{user_id}",
+            "is_read": "eq.false",
+            "select": "id",
+        },
+    )
+    return {"count": len(rows)}
+
+
 def mark_message_read(message_id):
     user_id = current_user_id()
     rows = db().update("messages", {"is_read": True}, {"id": f"eq.{message_id}", "user_id": f"eq.{user_id}"})
