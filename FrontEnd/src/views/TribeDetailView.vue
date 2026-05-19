@@ -2,7 +2,7 @@
   <div class="container mx-auto px-4 py-6">
     <button class="mb-4 text-sm text-primary hover:underline" type="button" @click="router.back()">返回</button>
 
-    <p v-if="error" class="mb-4 text-sm text-red-600">{{ error }}</p>
+    <p v-if="pageError" class="mb-4 text-sm text-red-600">{{ pageError }}</p>
     <p v-if="actionMessage" class="mb-4 text-sm text-primary">{{ actionMessage }}</p>
     <p v-if="loading" class="mb-4 text-sm text-gray-500">加载中...</p>
 
@@ -56,6 +56,9 @@
         <h3 class="text-xl font-semibold">部落讨论</h3>
         <span class="text-sm text-gray-500">{{ posts.length }} 篇帖子</span>
       </div>
+      <div v-if="postsError" class="mb-4 rounded-2xl bg-red-50 p-4 text-sm text-red-700">
+        {{ postsError }}
+      </div>
 
       <div class="space-y-4">
         <article
@@ -82,7 +85,10 @@
         </article>
       </div>
 
-      <div v-if="!loading && posts.length === 0" class="rounded-2xl bg-white p-8 text-center text-sm text-gray-500 shadow-md">
+      <div
+        v-if="!loading && !postsError && posts.length === 0"
+        class="rounded-2xl bg-white p-8 text-center text-sm text-gray-500 shadow-md"
+      >
         还没有帖子，来发起第一场讨论吧。
       </div>
     </section>
@@ -101,7 +107,8 @@ const tribe = ref(null);
 const posts = ref([]);
 const loading = ref(false);
 const submitting = ref(false);
-const error = ref('');
+const pageError = ref('');
+const postsError = ref('');
 const actionMessage = ref('');
 const showPostForm = ref(false);
 const postForm = reactive({
@@ -139,18 +146,26 @@ const formatDate = (value) => {
 
 const loadPage = async () => {
   loading.value = true;
-  error.value = '';
+  pageError.value = '';
+  postsError.value = '';
+
+  const tribeId = route.params.id;
+  try {
+    tribe.value = await api.get(`/tribes/${tribeId}`);
+  } catch (err) {
+    pageError.value = err.message || '加载部落详情失败';
+    loading.value = false;
+    return;
+  }
 
   try {
-    const tribeId = route.params.id;
-    const [tribeRow, postRows] = await Promise.all([
-      api.get(`/tribes/${tribeId}`),
-      api.get(`/tribes/${tribeId}/posts`)
-    ]);
-    tribe.value = tribeRow;
-    posts.value = postRows;
+    posts.value = await api.get(`/tribes/${tribeId}/posts`);
   } catch (err) {
-    error.value = err.message || '加载部落讨论失败';
+    posts.value = [];
+    const message = err.message || '加载部落讨论失败';
+    postsError.value = message.includes("public.tribe_posts")
+      ? '讨论区数据表还没有在 Supabase 中创建。请先执行 BackEnd/sql/001_init_schema.sql 和 BackEnd/sql/002_rls_policies.sql，然后等待 schema cache 刷新。'
+      : message;
   } finally {
     loading.value = false;
   }
@@ -158,7 +173,8 @@ const loadPage = async () => {
 
 const createPost = async () => {
   submitting.value = true;
-  error.value = '';
+  pageError.value = '';
+  postsError.value = '';
   actionMessage.value = '';
 
   try {
@@ -172,7 +188,10 @@ const createPost = async () => {
     actionMessage.value = '帖子已发布';
     await loadPage();
   } catch (err) {
-    error.value = err.message || '发布帖子失败';
+    const message = err.message || '发布帖子失败';
+    postsError.value = message.includes("public.tribe_posts")
+      ? '发布失败：讨论区数据表还没有在 Supabase 中创建。请先执行新增 SQL。'
+      : message;
   } finally {
     submitting.value = false;
   }
