@@ -270,7 +270,7 @@ def delete_post(post_id):
     if not _can_manage_post(post):
         raise APIError("FORBIDDEN", "You do not have permission to delete this post", 403)
 
-    db().update("tribe_posts", {"deleted_at": _now_iso()}, {"id": f"eq.{post_id}"})
+    db().update("tribe_posts", {"deleted_at": _now_iso()}, {"id": f"eq.{post_id}"}, returning="minimal")
     return {"deleted": True, "post_id": post_id}
 
 

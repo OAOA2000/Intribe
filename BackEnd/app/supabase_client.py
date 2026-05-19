@@ -81,8 +81,8 @@ class SupabaseRestClient:
     def insert(self, table, payload, params=None):
         return self.request("POST", table, params=params, json=payload, prefer="return=representation")
 
-    def update(self, table, payload, params=None):
-        return self.request("PATCH", table, params=params, json=payload, prefer="return=representation")
+    def update(self, table, payload, params=None, returning="representation"):
+        return self.request("PATCH", table, params=params, json=payload, prefer=f"return={returning}")
 
     def delete(self, table, params=None):
         return self.request("DELETE", table, params=params, prefer="return=representation")
