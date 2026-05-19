@@ -1,7 +1,12 @@
 from flask import Blueprint
 
 from ..auth import require_auth
-from ..services.ai_service import generate_activity_copy, generate_post_summary, generate_tribe_digest
+from ..services.ai_service import (
+    generate_activity_copy,
+    generate_post_summary,
+    generate_recommendations,
+    generate_tribe_digest,
+)
 from ..utils.responses import success_response
 from ..utils.validators import get_json_body
 
@@ -24,3 +29,9 @@ def tribe_digest():
 @require_auth
 def post_summary():
     return success_response(generate_post_summary(get_json_body()))
+
+
+@ai_bp.post("/recommendations")
+@require_auth
+def recommendations():
+    return success_response(generate_recommendations(get_json_body()))

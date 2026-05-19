@@ -115,3 +115,47 @@ def post_summary_prompt():
             "action_items": ["string，明确出现的后续行动或建议，没有则为空数组"],
         },
     )
+
+
+def recommendations_prompt():
+    return build_json_prompt(
+        (
+            "你负责根据当前用户资料，从平台提供的候选兴趣部落和活动中选择推荐项。"
+            "只能从输入的候选 tribes/events 中选择，必须使用候选项里的 id，不允许编造数据库中不存在的部落或活动。"
+            "推荐理由必须具体说明用户资料与候选项名称、描述、分类、地点或时间的关联，不要泛泛而谈。"
+            "如果用户个人简介为空，需要在 profile_basis.notes 中提示用户完善资料，同时可以基于专业、热门或近期内容做弱推荐。"
+            "输出必须为中文，score 范围必须是 0 到 1。"
+        ),
+        (
+            "用户资料 JSON：{profile}\n"
+            "候选部落 JSON：{tribes}\n"
+            "候选活动 JSON：{events}\n"
+            "推荐数量：部落最多 {limit_tribes} 个，活动最多 {limit_events} 个。\n\n"
+            "请生成结构化个性推荐。"
+        ),
+        {
+            "profile_basis": {
+                "used_bio": "boolean",
+                "used_interests": "boolean",
+                "notes": "string，中文，说明本次推荐依据或资料不足提示",
+            },
+            "recommended_tribes": [
+                {
+                    "tribe_id": "uuid，必须来自候选部落 id",
+                    "name": "string，候选部落名称",
+                    "reason": "string，具体中文理由",
+                    "match_tags": ["string"],
+                    "score": "number，0 到 1",
+                }
+            ],
+            "recommended_events": [
+                {
+                    "event_id": "uuid，必须来自候选活动 id",
+                    "title": "string，候选活动标题",
+                    "reason": "string，具体中文理由",
+                    "match_tags": ["string"],
+                    "score": "number，0 到 1",
+                }
+            ],
+        },
+    )

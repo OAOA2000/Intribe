@@ -60,7 +60,28 @@
 
     <!-- 活动列表 -->
     <section>
-      <h3 class="text-xl font-semibold mb-4">近期活动</h3>
+      <div class="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <h3 class="text-xl font-semibold">近期活动</h3>
+        <button class="btn-secondary inline-flex items-center justify-center gap-2 disabled:opacity-60" :disabled="aiRefreshLoading" @click="refreshAiRecommendations">
+          <Sparkles class="w-4 h-4" />
+          {{ aiRefreshLoading ? '推荐中...' : '根据我的简介刷新推荐' }}
+        </button>
+      </div>
+      <p v-if="aiRefreshError" class="mb-4 text-sm text-red-600">{{ aiRefreshError }}</p>
+      <div v-if="aiRecommendedEvents.length" class="mb-5 grid gap-3 md:grid-cols-2">
+        <button
+          v-for="item in aiRecommendedEvents"
+          :key="item.event_id"
+          class="rounded-lg border border-accent/20 bg-accent/5 p-4 text-left transition hover:border-accent/40"
+          @click="router.push(`/events/${item.event_id}`)"
+        >
+          <div class="flex items-start justify-between gap-3">
+            <h4 class="font-semibold">{{ item.title }}</h4>
+            <span class="shrink-0 rounded-full bg-accent/10 px-2 py-1 text-xs text-accent">{{ formatAiScore(item.score) }}</span>
+          </div>
+          <p class="mt-2 text-sm text-gray-600">{{ item.reason }}</p>
+        </button>
+      </div>
       <div class="space-y-4">
         <div v-for="activity in filteredActivities" :key="activity.id" class="card p-4 md:flex gap-4">
           <div class="md:w-1/4 mb-3 md:mb-0">
@@ -117,8 +138,9 @@
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { MapPin, Code, Activity, Guitar, Book, Palette, Users, Calendar } from 'lucide-vue-next';
+import { MapPin, Code, Activity, Guitar, Book, Palette, Users, Calendar, Sparkles } from 'lucide-vue-next';
 import { api } from '../services/api';
+import { aiApi } from '../services/aiApi';
 
 // 标签数据
 const tags = [
@@ -139,6 +161,9 @@ const error = ref('');
 const actionMessage = ref('');
 const registeringId = ref(null);
 const cancellingId = ref(null);
+const aiRefreshLoading = ref(false);
+const aiRefreshError = ref('');
+const aiRecommendedEvents = ref([]);
 const tribes = ref([]);
 const activities = ref([]);
 const registrations = ref([]);
@@ -320,6 +345,28 @@ const cancelRegistration = async (activity) => {
   } finally {
     cancellingId.value = null;
   }
+};
+
+const refreshAiRecommendations = async () => {
+  aiRefreshLoading.value = true;
+  aiRefreshError.value = '';
+
+  try {
+    const result = await aiApi.generateRecommendations({ limit_tribes: 0, limit_events: 3 });
+    aiRecommendedEvents.value = result.recommended_events || [];
+  } catch (err) {
+    aiRefreshError.value = err.message || 'AI 活动推荐生成失败，请稍后重试';
+  } finally {
+    aiRefreshLoading.value = false;
+  }
+};
+
+const formatAiScore = (score) => {
+  const value = Number(score);
+  if (Number.isNaN(value)) {
+    return '推荐';
+  }
+  return `${Math.round(value * 100)}%`;
 };
 
 // 过滤后的部落

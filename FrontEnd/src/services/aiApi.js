@@ -18,5 +18,7 @@ export const aiApi = {
   generateTribeDigest: (params) =>
     withAiError(() => apiRequest('/ai/tribe-digest', { method: 'POST', body: params })),
   generatePostSummary: (postId) =>
-    withAiError(() => apiRequest('/ai/post-summary', { method: 'POST', body: { post_id: postId } }))
+    withAiError(() => apiRequest('/ai/post-summary', { method: 'POST', body: { post_id: postId } })),
+  generateRecommendations: (params = {}) =>
+    withAiError(() => apiRequest('/ai/recommendations', { method: 'POST', body: params }))
 };

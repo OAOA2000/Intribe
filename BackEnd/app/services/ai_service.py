@@ -2,8 +2,8 @@ import json
 from datetime import datetime, time, timedelta, timezone
 
 from .ai_context_service import get_current_profile_context
-from .ai_prompt_service import activity_copy_prompt, post_summary_prompt, tribe_digest_prompt
-from .common import current_user_id, db, single_or_404
+from .ai_prompt_service import activity_copy_prompt, post_summary_prompt, recommendations_prompt, tribe_digest_prompt
+from .common import current_user_email, current_user_id, db, single_or_404
 from .llm_service import invoke_json
 from ..utils.errors import APIError
 from ..utils.validators import require_fields
@@ -462,6 +462,361 @@ def _normalize_string_list(value, limit=8, max_length=140):
     if not isinstance(value, list):
         return []
     return [_text(item, max_length) for item in value if str(item or "").strip()][:limit]
+
+
+def _parse_limit(value, default=5, maximum=10):
+    if value in (None, ""):
+        return default
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError) as exc:
+        raise APIError("VALIDATION_ERROR", "Recommendation limits must be integers", 400) from exc
+    if parsed < 0:
+        raise APIError("VALIDATION_ERROR", "Recommendation limits cannot be negative", 400)
+    return min(parsed, maximum)
+
+
+def _load_current_profile_for_recommendations(user_id):
+    rows = db().select(
+        "profiles",
+        {
+            "id": f"eq.{user_id}",
+            "select": "id,email,display_name,major,bio",
+            "limit": "1",
+        },
+    )
+    if rows:
+        return rows[0]
+    return {
+        "id": user_id,
+        "email": current_user_email(),
+        "display_name": "",
+        "major": "",
+        "bio": "",
+    }
+
+
+def _load_joined_tribe_ids(user_id):
+    rows = db().select(
+        "tribe_members",
+        {
+            "user_id": f"eq.{user_id}",
+            "select": "tribe_id",
+            "limit": "500",
+        },
+    )
+    return {row.get("tribe_id") for row in rows if row.get("tribe_id")}
+
+
+def _load_registered_event_ids(user_id):
+    rows = db().select(
+        "event_registrations",
+        {
+            "user_id": f"eq.{user_id}",
+            "status": "neq.cancelled",
+            "select": "event_id",
+            "limit": "500",
+        },
+    )
+    return {row.get("event_id") for row in rows if row.get("event_id")}
+
+
+def _load_recommendation_tribes(joined_tribe_ids):
+    rows = db().select(
+        "tribes",
+        {
+            "select": "id,name,description,category,tribe_members(id,user_id)",
+            "order": "created_at.desc",
+            "limit": "80",
+        },
+    )
+    candidates = []
+    for row in rows:
+        if row.get("id") in joined_tribe_ids:
+            continue
+        members = row.get("tribe_members") if isinstance(row.get("tribe_members"), list) else []
+        candidates.append(
+            {
+                "id": row.get("id"),
+                "name": _text(row.get("name"), 80),
+                "description": _text(row.get("description"), 240),
+                "category": _text(row.get("category"), 40),
+                "member_count": len(members),
+            }
+        )
+    return [item for item in candidates if item.get("id")]
+
+
+def _load_recommendation_events(registered_event_ids):
+    rows = db().select(
+        "events",
+        {
+            "status": "neq.cancelled",
+            "select": "id,title,description,location,start_time,status,tribe_id,tribes(id,name,category)",
+            "order": "start_time.asc",
+            "limit": "100",
+        },
+    )
+    candidates = []
+    for row in rows:
+        if row.get("id") in registered_event_ids:
+            continue
+        tribe = row.get("tribes") if isinstance(row.get("tribes"), dict) else {}
+        candidates.append(
+            {
+                "id": row.get("id"),
+                "title": _text(row.get("title"), 100),
+                "description": _text(row.get("description"), 260),
+                "location": _text(row.get("location"), 80),
+                "start_time": row.get("start_time"),
+                "status": row.get("status"),
+                "tribe_id": row.get("tribe_id"),
+                "tribe_name": _text(tribe.get("name"), 80),
+                "tribe_category": _text(tribe.get("category"), 40),
+            }
+        )
+    return [item for item in candidates if item.get("id")]
+
+
+def _profile_keyword_text(profile):
+    return " ".join(
+        str(profile.get(field) or "").strip()
+        for field in ("display_name", "major", "bio")
+        if str(profile.get(field) or "").strip()
+    )
+
+
+def _extract_match_tags(profile, item, fields):
+    tags = []
+    profile_text = _profile_keyword_text(profile)
+    profile_parts = [part for part in profile_text.replace("，", " ").replace(",", " ").split() if len(part) >= 2]
+    item_text = " ".join(str(item.get(field) or "") for field in fields)
+    category = item.get("category") or item.get("tribe_category")
+    if category:
+        tags.append(str(category))
+    major = profile.get("major")
+    if major and (major in item_text or any(word in item_text for word in str(major).split())):
+        tags.append(str(major))
+    for part in profile_parts:
+        if part in item_text and part not in tags:
+            tags.append(part)
+    return tags[:4]
+
+
+def _heuristic_score(profile, item, fields):
+    score = 0.35
+    profile_text = _profile_keyword_text(profile)
+    item_text = " ".join(str(item.get(field) or "") for field in fields)
+    if profile.get("bio"):
+        score += 0.1
+    if profile.get("major") and profile.get("major") in item_text:
+        score += 0.25
+    for word in profile_text.replace("，", " ").replace(",", " ").split():
+        if len(word) >= 2 and word in item_text:
+            score += 0.08
+    if item.get("status") in ("recruiting", "ongoing"):
+        score += 0.08
+    if item.get("member_count"):
+        score += min(float(item["member_count"]) / 100, 0.08)
+    return round(max(0, min(score, 0.95)), 2)
+
+
+def _fallback_recommendations(profile, tribes, events, limit_tribes, limit_events):
+    has_bio = bool(str(profile.get("bio") or "").strip())
+    tribe_ranked = sorted(
+        tribes,
+        key=lambda item: _heuristic_score(profile, item, ("name", "description", "category")),
+        reverse=True,
+    )
+    event_ranked = sorted(
+        events,
+        key=lambda item: _heuristic_score(
+            profile,
+            item,
+            ("title", "description", "location", "status", "tribe_name", "tribe_category"),
+        ),
+        reverse=True,
+    )
+    basis_note = (
+        "已结合你的个人简介、专业和平台可见内容生成推荐。"
+        if has_bio
+        else "你的个人简介暂未填写，完善个人简介可提升推荐质量；本次主要基于专业、部落分类和近期活动进行弱推荐。"
+    )
+    return {
+        "profile_basis": {
+            "used_bio": has_bio,
+            "used_interests": False,
+            "notes": basis_note,
+        },
+        "recommended_tribes": [
+            {
+                "tribe_id": item["id"],
+                "name": item.get("name") or "兴趣部落",
+                "reason": (
+                    f"该部落的「{item.get('category') or item.get('name') or '兴趣方向'}」方向与你的资料信息有潜在关联。"
+                    if has_bio or profile.get("major")
+                    else f"该部落属于「{item.get('category') or '校园兴趣'}」方向，可作为完善资料前的探索选择。"
+                ),
+                "match_tags": _extract_match_tags(profile, item, ("name", "description", "category")),
+                "score": _heuristic_score(profile, item, ("name", "description", "category")),
+            }
+            for item in tribe_ranked[:limit_tribes]
+        ],
+        "recommended_events": [
+            {
+                "event_id": item["id"],
+                "title": item.get("title") or "校园活动",
+                "reason": (
+                    f"活动内容与「{item.get('tribe_category') or item.get('title') or '你的兴趣'}」相关，且当前状态适合关注。"
+                    if has_bio or profile.get("major")
+                    else "该活动来自你可见的近期活动列表，可先了解并通过完善简介提升后续匹配度。"
+                ),
+                "match_tags": _extract_match_tags(
+                    profile,
+                    item,
+                    ("title", "description", "location", "status", "tribe_name", "tribe_category"),
+                ),
+                "score": _heuristic_score(
+                    profile,
+                    item,
+                    ("title", "description", "location", "status", "tribe_name", "tribe_category"),
+                ),
+            }
+            for item in event_ranked[:limit_events]
+        ],
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+def _clamp_score(value):
+    try:
+        return round(max(0, min(float(value), 1)), 2)
+    except (TypeError, ValueError):
+        return 0.5
+
+
+def _normalize_recommendations_output(result, profile, tribes, events, limit_tribes, limit_events):
+    fallback = _fallback_recommendations(profile, tribes, events, limit_tribes, limit_events)
+    tribe_by_id = {item["id"]: item for item in tribes}
+    event_by_id = {item["id"]: item for item in events}
+    has_bio = bool(str(profile.get("bio") or "").strip())
+
+    basis = result.get("profile_basis") if isinstance(result.get("profile_basis"), dict) else {}
+    normalized = {
+        "profile_basis": {
+            "used_bio": bool(basis.get("used_bio")) and has_bio,
+            "used_interests": bool(basis.get("used_interests")),
+            "notes": _text(basis.get("notes") or fallback["profile_basis"]["notes"], 220),
+        },
+        "recommended_tribes": [],
+        "recommended_events": [],
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+    if limit_tribes > 0:
+        for item in result.get("recommended_tribes") if isinstance(result.get("recommended_tribes"), list) else []:
+            if not isinstance(item, dict):
+                continue
+            tribe = tribe_by_id.get(item.get("tribe_id"))
+            if not tribe:
+                continue
+            normalized["recommended_tribes"].append(
+                {
+                    "tribe_id": tribe["id"],
+                    "name": tribe.get("name") or _text(item.get("name"), 80),
+                    "reason": _text(item.get("reason") or "该部落与你的资料信息相关。", 220),
+                    "match_tags": _normalize_string_list(item.get("match_tags"), limit=5, max_length=40),
+                    "score": _clamp_score(item.get("score")),
+                }
+            )
+            if len(normalized["recommended_tribes"]) >= limit_tribes:
+                break
+
+    if limit_events > 0:
+        for item in result.get("recommended_events") if isinstance(result.get("recommended_events"), list) else []:
+            if not isinstance(item, dict):
+                continue
+            event = event_by_id.get(item.get("event_id"))
+            if not event:
+                continue
+            normalized["recommended_events"].append(
+                {
+                    "event_id": event["id"],
+                    "title": event.get("title") or _text(item.get("title"), 100),
+                    "reason": _text(item.get("reason") or "该活动与你的资料信息相关。", 220),
+                    "match_tags": _normalize_string_list(item.get("match_tags"), limit=5, max_length=40),
+                    "score": _clamp_score(item.get("score")),
+                }
+            )
+            if len(normalized["recommended_events"]) >= limit_events:
+                break
+
+    if len(normalized["recommended_tribes"]) < limit_tribes:
+        seen = {item["tribe_id"] for item in normalized["recommended_tribes"]}
+        normalized["recommended_tribes"].extend(
+            item for item in fallback["recommended_tribes"] if item["tribe_id"] not in seen
+        )
+        normalized["recommended_tribes"] = normalized["recommended_tribes"][:limit_tribes]
+
+    if len(normalized["recommended_events"]) < limit_events:
+        seen = {item["event_id"] for item in normalized["recommended_events"]}
+        normalized["recommended_events"].extend(
+            item for item in fallback["recommended_events"] if item["event_id"] not in seen
+        )
+        normalized["recommended_events"] = normalized["recommended_events"][:limit_events]
+
+    if not has_bio and "完善个人简介" not in normalized["profile_basis"]["notes"]:
+        normalized["profile_basis"]["notes"] = f"{normalized['profile_basis']['notes']} 完善个人简介可提升推荐质量。"
+    return normalized
+
+
+def generate_recommendations(data):
+    data = data or {}
+    limit_tribes = _parse_limit(data.get("limit_tribes"), default=5)
+    limit_events = _parse_limit(data.get("limit_events"), default=5)
+    user_id = current_user_id()
+
+    profile = _load_current_profile_for_recommendations(user_id)
+    joined_tribe_ids = _load_joined_tribe_ids(user_id)
+    registered_event_ids = _load_registered_event_ids(user_id)
+    tribes = _load_recommendation_tribes(joined_tribe_ids)
+    events = _load_recommendation_events(registered_event_ids)
+
+    if not tribes and not events:
+        return {
+            **_fallback_recommendations(profile, [], [], limit_tribes, limit_events),
+            "recommended_tribes": [],
+            "recommended_events": [],
+        }
+
+    try:
+        result = invoke_json(
+            recommendations_prompt(),
+            {
+                "profile": json.dumps(
+                    {
+                        "nickname": profile.get("display_name") or "",
+                        "email": profile.get("email") or "",
+                        "major": profile.get("major") or "",
+                        "bio": profile.get("bio") or "",
+                    },
+                    ensure_ascii=False,
+                ),
+                "tribes": json.dumps(tribes, ensure_ascii=False),
+                "events": json.dumps(events, ensure_ascii=False),
+                "limit_tribes": limit_tribes,
+                "limit_events": limit_events,
+            },
+            required_fields=("profile_basis", "recommended_tribes", "recommended_events"),
+            defaults={"profile_basis": {}, "recommended_tribes": [], "recommended_events": []},
+            temperature=0.2,
+        )
+    except APIError as exc:
+        if exc.code.startswith("LLM_"):
+            return _fallback_recommendations(profile, tribes, events, limit_tribes, limit_events)
+        raise
+
+    return _normalize_recommendations_output(result, profile, tribes, events, limit_tribes, limit_events)
 
 
 def _normalize_post_summary_output(result, post, comment_count):

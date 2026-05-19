@@ -76,6 +76,7 @@
 - AI 活动文案接口
 - AI 部落消息摘要 / 今日部落动态接口
 - AI 帖子内容总结接口与帖子详情页弹窗入口
+- AI 个性推荐接口与个人中心推荐模块
 
 当前系统属于：
 
@@ -100,10 +101,11 @@
 - AI 活动文案接口
 - AI 部落消息摘要：在消息中心按部落生成“今日部落动态”
 - AI 帖子内容总结：在帖子详情页按当前帖子正文和评论区生成一次性中文讨论总结
+- AI 个性推荐：在个人中心基于当前用户个人简介、专业和可见候选内容推荐兴趣部落与活动
 
 仍需继续完善：
 
-1. 更完整的活动详情页和活动消息通知流程
+1. 更完整的活动消息通知流程
 2. 成员审核、入部申请、活动签到等更细业务流程
 3. 更严格的表单校验、分页、错误提示和空状态
 4. Supabase 实时订阅能力
@@ -962,11 +964,63 @@ Prompt 约束：
 
 ### AI 推荐系统
 
-推荐：
+当前已实现：
 
-- 兴趣部落
-- 活动
-- 志同道合用户
+- `POST /api/ai/recommendations`
+- 请求体可为空，也可传 `{ "limit_tribes": 5, "limit_events": 5 }`
+- 后端只基于当前登录用户自己的 `profiles` 记录生成推荐，当前 schema 使用 `display_name`、`major`、`bio`
+- 候选兴趣部落来自当前用户 JWT 可见的 `tribes`，字段包括 `name`、`description`、`category`、`member_count`
+- 候选活动来自当前用户 JWT 可见的 `events`，字段包括 `title`、`description`、`location`、`start_time`、`status`、`tribe_id`
+- 当前用户已加入的部落通过 `tribe_members` 过滤，不进入常规推荐列表
+- 当前用户已报名且未取消的活动通过 `event_registrations` 过滤，不进入常规推荐列表
+- 推荐上下文读取使用当前用户 JWT 访问 Supabase REST，继续依赖 RLS，不为推荐候选绕过 RLS
+- LLM 只能从候选 tribes/events 中选择；后端会二次校验返回 ID，丢弃不在候选集内的结果
+- LLM 输出不合法或 Provider 短暂失败时，后端使用本地弱匹配兜底，仍返回统一结构
+- 无候选部落 / 活动时返回空推荐数组
+
+响应结构：
+
+```json
+{
+  "profile_basis": {
+    "used_bio": true,
+    "used_interests": false,
+    "notes": "string"
+  },
+  "recommended_tribes": [
+    {
+      "tribe_id": "uuid",
+      "name": "string",
+      "reason": "string",
+      "match_tags": ["string"],
+      "score": 0.0
+    }
+  ],
+  "recommended_events": [
+    {
+      "event_id": "uuid",
+      "title": "string",
+      "reason": "string",
+      "match_tags": ["string"],
+      "score": 0.0
+    }
+  ],
+  "generated_at": "ISO datetime"
+}
+```
+
+前端入口：
+
+- `FrontEnd/src/services/aiApi.js` 暴露 `generateRecommendations(params)`
+- `ProfileView.vue` 在个人资料下方提供“AI 个性推荐”模块
+- 模块将“推荐兴趣部落”和“推荐活动”拆成两个独立按钮，分别加载、分别展示 loading / error / empty state
+- 点击“推荐兴趣部落”时传 `limit_tribes: 5, limit_events: 0`
+- 点击“推荐活动”时传 `limit_tribes: 0, limit_events: 5`
+- 模块展示推荐部落、推荐活动、具体推荐理由、匹配标签、匹配分数
+- 支持跳转到部落详情 `/tribes/:id` 和活动详情 `/events/:id`
+- 个人简介为空时提示“完善个人简介可提升推荐质量”
+- loading、error、empty state 已覆盖
+- `HomeView.vue` 的近期活动区域提供“根据我的简介刷新推荐”按钮，以不改变原活动列表的方式展示推荐活动
 
 ---
 

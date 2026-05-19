@@ -57,6 +57,95 @@
         {{ saving ? '保存中...' : '保存资料' }}
       </button>
     </form>
+
+    <section class="card p-6 mb-6">
+      <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-4">
+        <div>
+          <p class="text-xs font-medium uppercase tracking-wide text-primary">AI 个性推荐</p>
+          <h3 class="font-semibold">根据你的简介发现部落和活动</h3>
+        </div>
+      </div>
+
+      <p v-if="isBioEmpty" class="mb-4 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-700">完善个人简介可提升推荐质量</p>
+
+      <div class="grid lg:grid-cols-2 gap-5">
+        <div class="rounded-lg border border-gray-100 p-4">
+          <div class="mb-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div class="flex items-center gap-2">
+              <Users class="w-5 h-5 text-primary" />
+              <h4 class="font-semibold">推荐兴趣部落</h4>
+            </div>
+            <button class="btn-primary inline-flex items-center justify-center gap-2 disabled:opacity-60" :disabled="tribeRecommendationLoading" @click="loadTribeRecommendations">
+              <Sparkles class="w-4 h-4" />
+              {{ tribeRecommendationLoading ? '推荐中...' : '推荐兴趣部落' }}
+            </button>
+          </div>
+          <p v-if="tribeRecommendationError" class="mb-3 text-sm text-red-600">{{ tribeRecommendationError }}</p>
+          <p v-if="tribeRecommendationNotes" class="mb-3 text-sm text-gray-500">{{ tribeRecommendationNotes }}</p>
+          <div v-if="tribeRecommendationLoading" class="rounded-lg bg-gray-50 p-4 text-sm text-gray-500">
+            AI 正在结合你的资料匹配可见兴趣部落...
+          </div>
+          <div class="space-y-3">
+            <button
+              v-for="tribe in recommendedTribes"
+              :key="tribe.tribe_id"
+              class="w-full rounded-lg border border-gray-100 bg-white p-4 text-left transition hover:border-primary/40 hover:bg-primary/5"
+              @click="goToTribe(tribe.tribe_id)"
+            >
+              <div class="flex items-start justify-between gap-3">
+                <h5 class="font-semibold">{{ tribe.name }}</h5>
+                <span class="shrink-0 rounded-full bg-primary/10 px-2 py-1 text-xs text-primary">{{ formatScore(tribe.score) }}</span>
+              </div>
+              <p class="mt-2 text-sm text-gray-600">{{ tribe.reason }}</p>
+              <div v-if="tribe.match_tags?.length" class="mt-3 flex flex-wrap gap-2">
+                <span v-for="tag in tribe.match_tags" :key="tag" class="rounded-full bg-gray-100 px-2 py-1 text-xs text-gray-600">{{ tag }}</span>
+              </div>
+            </button>
+            <p v-if="!tribeRecommendationLoading && recommendedTribes.length === 0" class="rounded-lg bg-gray-50 p-4 text-sm text-gray-500">
+              点击“推荐兴趣部落”后，将在这里展示适合你的部落。
+            </p>
+          </div>
+        </div>
+
+        <div class="rounded-lg border border-gray-100 p-4">
+          <div class="mb-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div class="flex items-center gap-2">
+              <Calendar class="w-5 h-5 text-primary" />
+              <h4 class="font-semibold">推荐活动</h4>
+            </div>
+            <button class="btn-secondary inline-flex items-center justify-center gap-2 disabled:opacity-60" :disabled="eventRecommendationLoading" @click="loadEventRecommendations">
+              <Sparkles class="w-4 h-4" />
+              {{ eventRecommendationLoading ? '推荐中...' : '推荐活动' }}
+            </button>
+          </div>
+          <p v-if="eventRecommendationError" class="mb-3 text-sm text-red-600">{{ eventRecommendationError }}</p>
+          <p v-if="eventRecommendationNotes" class="mb-3 text-sm text-gray-500">{{ eventRecommendationNotes }}</p>
+          <div v-if="eventRecommendationLoading" class="rounded-lg bg-gray-50 p-4 text-sm text-gray-500">
+            AI 正在结合你的资料匹配可见活动...
+          </div>
+          <div class="space-y-3">
+            <button
+              v-for="event in recommendedEvents"
+              :key="event.event_id"
+              class="w-full rounded-lg border border-gray-100 bg-white p-4 text-left transition hover:border-primary/40 hover:bg-primary/5"
+              @click="goToEvent(event.event_id)"
+            >
+              <div class="flex items-start justify-between gap-3">
+                <h5 class="font-semibold">{{ event.title }}</h5>
+                <span class="shrink-0 rounded-full bg-accent/10 px-2 py-1 text-xs text-accent">{{ formatScore(event.score) }}</span>
+              </div>
+              <p class="mt-2 text-sm text-gray-600">{{ event.reason }}</p>
+              <div v-if="event.match_tags?.length" class="mt-3 flex flex-wrap gap-2">
+                <span v-for="tag in event.match_tags" :key="tag" class="rounded-full bg-gray-100 px-2 py-1 text-xs text-gray-600">{{ tag }}</span>
+              </div>
+            </button>
+            <p v-if="!eventRecommendationLoading && recommendedEvents.length === 0" class="rounded-lg bg-gray-50 p-4 text-sm text-gray-500">
+              点击“推荐活动”后，将在这里展示适合你的近期活动。
+            </p>
+          </div>
+        </div>
+      </div>
+    </section>
     
     <!-- 功能列表 -->
     <div class="card p-4">
@@ -120,11 +209,14 @@
 
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue';
-import { User, Calendar, Settings, HelpCircle, ChevronRight } from 'lucide-vue-next';
+import { useRouter } from 'vue-router';
+import { User, Calendar, Settings, HelpCircle, ChevronRight, Sparkles, Users } from 'lucide-vue-next';
 import { authState } from '../stores/auth';
 import { api } from '../services/api';
+import { aiApi } from '../services/aiApi';
 
 const profile = ref(null);
+const router = useRouter();
 const joinedCount = ref(0);
 const registeredCount = ref(0);
 const managedEventCount = ref(0);
@@ -134,6 +226,12 @@ const loading = ref(false);
 const saving = ref(false);
 const error = ref('');
 const successMessage = ref('');
+const tribeRecommendationLoading = ref(false);
+const tribeRecommendationError = ref('');
+const tribeRecommendations = ref(null);
+const eventRecommendationLoading = ref(false);
+const eventRecommendationError = ref('');
+const eventRecommendations = ref(null);
 const form = reactive({
   display_name: '',
   major: '',
@@ -153,6 +251,11 @@ const displayName = computed(() => {
 
   return email.split('@')[0];
 });
+const isBioEmpty = computed(() => !String(form.bio || '').trim());
+const recommendedTribes = computed(() => tribeRecommendations.value?.recommended_tribes || []);
+const recommendedEvents = computed(() => eventRecommendations.value?.recommended_events || []);
+const tribeRecommendationNotes = computed(() => tribeRecommendations.value?.profile_basis?.notes || '');
+const eventRecommendationNotes = computed(() => eventRecommendations.value?.profile_basis?.notes || '');
 
 const fillForm = (data) => {
   profile.value = data;
@@ -219,6 +322,58 @@ const saveProfile = async () => {
     error.value = err.message || '保存个人资料失败';
   } finally {
     saving.value = false;
+  }
+};
+
+const loadTribeRecommendations = async () => {
+  tribeRecommendationLoading.value = true;
+  tribeRecommendationError.value = '';
+
+  try {
+    tribeRecommendations.value = await aiApi.generateRecommendations({
+      limit_tribes: 5,
+      limit_events: 0
+    });
+  } catch (err) {
+    tribeRecommendationError.value = err.message || 'AI 部落推荐生成失败，请稍后重试';
+  } finally {
+    tribeRecommendationLoading.value = false;
+  }
+};
+
+const loadEventRecommendations = async () => {
+  eventRecommendationLoading.value = true;
+  eventRecommendationError.value = '';
+
+  try {
+    eventRecommendations.value = await aiApi.generateRecommendations({
+      limit_tribes: 0,
+      limit_events: 5
+    });
+  } catch (err) {
+    eventRecommendationError.value = err.message || 'AI 活动推荐生成失败，请稍后重试';
+  } finally {
+    eventRecommendationLoading.value = false;
+  }
+};
+
+const formatScore = (score) => {
+  const value = Number(score);
+  if (Number.isNaN(value)) {
+    return '匹配';
+  }
+  return `${Math.round(value * 100)}%`;
+};
+
+const goToTribe = (tribeId) => {
+  if (tribeId) {
+    router.push(`/tribes/${tribeId}`);
+  }
+};
+
+const goToEvent = (eventId) => {
+  if (eventId) {
+    router.push(`/events/${eventId}`);
   }
 };
 
