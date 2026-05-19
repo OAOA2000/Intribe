@@ -176,7 +176,10 @@ Vue + Vite 静态站点
 Tencent EdgeOne Pages
 
 后端：
-Supabase + Edge Functions
+Flask API + Supabase + Edge Functions
+
+AI 编排：
+LangChain + OpenAI 兼容 LLM Provider
 
 数据库：
 PostgreSQL (Supabase)
@@ -889,6 +892,52 @@ AI 是：
 ```
 
 避免暴露 API Key。
+
+当前后端 AI 调用链路：
+
+```text
+前端 Vue
+  -> FrontEnd/src/services/aiApi.js
+  -> Flask /api/ai/*
+  -> Supabase Auth access_token 校验
+  -> AI service 层按需使用当前用户 JWT 读取 Supabase REST
+  -> LangChain ChatOpenAI(OpenAI-compatible base_url)
+  -> 结构化 JSON 响应
+```
+
+AI 接口必须遵守：
+
+- 前端只调用 Flask API，不允许直接请求 LLM Provider。
+- LLM API Key 仅存在于 `BackEnd/.env`，不得写入前端环境变量或源码。
+- 普通业务上下文读取必须优先使用当前用户 JWT，继续依赖 Supabase RLS。
+- 只有服务端可信聚合、后台任务或系统级操作才允许封装使用 service role key。
+- route 层只做认证、输入读取和响应包装，不直接写 prompt。
+- prompt、上下文读取、LLM 调用、输出解析分别放在 service 层。
+- LLM 输出优先 JSON object，并通过后端 parser 校验字段。
+- 输入校验、空状态、超时、依赖缺失、Provider 异常都必须返回统一错误格式。
+
+当前 AI 基础设施文件：
+
+```text
+BackEnd/app/routes/ai.py
+BackEnd/app/services/ai_service.py
+BackEnd/app/services/llm_service.py
+BackEnd/app/services/ai_context_service.py
+BackEnd/app/services/ai_prompt_service.py
+BackEnd/app/services/ai_output_parser.py
+FrontEnd/src/services/aiApi.js
+```
+
+后端 LLM 环境变量：
+
+```text
+LLM_API_KEY=your-server-side-provider-key
+BASE_URL=https://api.deepseek.com
+MODEL_NAME=deepseek-v4-flash
+LLM_TIMEOUT_SECONDS=15
+```
+
+`BASE_URL` 与 `MODEL_NAME` 兼容 OpenAI-style provider；后续如切换 provider，应优先扩展 `llm_service.py`，避免把 provider 细节扩散到业务 service 或 route。
 
 ---
 

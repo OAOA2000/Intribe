@@ -18,9 +18,14 @@ SUPABASE_URL=https://your-project-id.supabase.co
 SUPABASE_ANON_KEY=your-anon-public-key
 SUPABASE_SERVICE_ROLE_KEY=your-service-role-key-keep-server-side-only
 FRONTEND_ORIGIN=http://localhost:5173
+LLM_API_KEY=your-server-side-llm-key
+BASE_URL=https://api.deepseek.com
+MODEL_NAME=deepseek-v4-flash
 ```
 
 `SUPABASE_SERVICE_ROLE_KEY` must never be exposed to the frontend. Current API calls use the user's Supabase JWT and RLS first; the service role key is reserved for future trusted server-side administration jobs only.
+
+`LLM_API_KEY` must also remain server-side only. AI routes call the provider through Flask and LangChain; the frontend only calls `/api/ai/*`.
 
 ## Database Initialization
 
@@ -174,4 +179,4 @@ pytest
 - Add pagination and richer dashboard aggregates.
 - Add structured validation for date/time and enum fields.
 - Add automated auth and RLS integration tests against a test Supabase project.
-- Connect `ai_service.py` to OpenAI, DeepSeek, or another LLM provider.
+- Add business-specific AI features on top of the shared LangChain service layer.

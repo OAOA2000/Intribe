@@ -18,6 +18,9 @@ class Config:
     SUPABASE_JWT_SECRET = os.getenv("SUPABASE_JWT_SECRET", "")
 
     LLM_API_KEY = os.getenv("LLM_API_KEY", "")
+    LLM_BASE_URL = os.getenv("BASE_URL", os.getenv("LLM_BASE_URL", "")).strip()
+    LLM_MODEL_NAME = os.getenv("MODEL_NAME", os.getenv("LLM_MODEL_NAME", "")).strip().strip("'\"")
+    LLM_TIMEOUT_SECONDS = int(os.getenv("LLM_TIMEOUT_SECONDS", os.getenv("REQUEST_TIMEOUT_SECONDS", "15")))
     REQUEST_TIMEOUT_SECONDS = int(os.getenv("REQUEST_TIMEOUT_SECONDS", "15"))
 
     JSON_AS_ASCII = False
