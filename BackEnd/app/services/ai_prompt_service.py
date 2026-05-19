@@ -9,18 +9,24 @@ BASE_SYSTEM_PROMPT = (
 )
 
 
+def _escape_template_literals(value):
+    return value.replace("{", "{{").replace("}", "}}")
+
+
 def build_json_prompt(system_message, user_template, output_schema):
     try:
         from langchain_core.prompts import ChatPromptTemplate
     except ImportError as exc:
         raise APIError("LLM_DEPENDENCY_MISSING", "LangChain Core dependency is not installed", 500) from exc
 
-    system = "\n".join(
-        [
-            BASE_SYSTEM_PROMPT,
-            system_message.strip(),
-            json_format_instructions(output_schema),
-        ]
+    system = _escape_template_literals(
+        "\n".join(
+            [
+                BASE_SYSTEM_PROMPT,
+                system_message.strip(),
+                json_format_instructions(output_schema),
+            ]
+        )
     )
     return ChatPromptTemplate.from_messages(
         [

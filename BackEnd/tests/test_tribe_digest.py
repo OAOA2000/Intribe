@@ -2,6 +2,8 @@ import pytest
 
 from app import create_app
 from app.services import ai_service
+from app.services.ai_output_parser import json_format_instructions
+from app.services.ai_prompt_service import _escape_template_literals
 from app.utils.errors import APIError
 
 
@@ -103,3 +105,19 @@ def test_tribe_digest_llm_failure_is_readable(monkeypatch):
 
     assert error.value.status_code == 502
     assert "AI 总结暂时生成失败" in error.value.message
+
+
+def test_tribe_digest_schema_braces_are_escaped_for_langchain_template():
+    schema_text = json_format_instructions(
+        {
+            "summary": "string",
+            "highlights": [{"type": "post|comment|event|todo", "title": "string"}],
+            "todos": ["string"],
+        }
+    )
+
+    escaped = _escape_template_literals(schema_text)
+
+    assert '{{"summary"' in escaped
+    assert '[{{"type"' in escaped
+    assert '"string"]}}' in escaped
